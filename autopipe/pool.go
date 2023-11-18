@@ -45,6 +45,10 @@ func (self *itemsBuf) weight() int {
 	return len(self.Items) + self.extWeight
 }
 
+func (self *itemsBuf) Empty() bool {
+	return len(self.Items) == 0
+}
+
 func (self *itemsBuf) Exec(ctx context.Context, pipe redis.Pipeliner) {
 	for _, item := range self.Items {
 		item.Exec(pipe)
@@ -76,7 +80,7 @@ func (self *itemsBuf) Cancel(err error) {
 
 func (self *itemsBuf) WantFlush() bool {
 	if item := self.lastItem(); item != nil {
-		return item.Ctx.Err() != nil || !item.Batch
+		return item.Ctx.Err() != nil
 	}
 	return false
 }

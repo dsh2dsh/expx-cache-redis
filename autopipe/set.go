@@ -29,19 +29,18 @@ func (self *AutoPipe) Set(
 	return nil
 }
 
-func appendSet(ctx context.Context, items *cmdItems, key string, blob []byte,
+func appendSet(ctx context.Context, items *cmdItems, key string, b []byte,
 	ttl time.Duration,
 ) {
 	items.Append(cmdItem{
 		Ctx: ctx,
 		//nolint:wrapcheck // wrap it later
 		Cmd: func(ctx context.Context, pipe redis.Pipeliner) error {
-			return pipe.Set(ctx, key, blob, ttl).Err()
+			return pipe.Set(ctx, key, b, ttl).Err()
 		},
 		Callback: func(cmd redis.Cmder, canceled error) error {
 			defer items.Done()
 			return cmdErr(cmd, canceled)
 		},
-		Batch: true,
 	})
 }

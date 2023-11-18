@@ -1,6 +1,7 @@
 package autopipe
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -9,9 +10,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const defaultMaxWeight = 1000
+
+var defaultFlushInterval = time.Millisecond
+
 func New(rdb redis.Cmdable) *AutoPipe {
 	r := &AutoPipe{
-		maxWeight: 1000,
+		flushInterval: defaultFlushInterval,
+		maxWeight:     defaultMaxWeight,
 
 		rdb: rdb,
 	}
@@ -20,14 +26,20 @@ func New(rdb redis.Cmdable) *AutoPipe {
 }
 
 type AutoPipe struct {
-	maxWeight  int
-	refreshTTL time.Duration
+	flushInterval time.Duration
+	maxWeight     int
+	refreshTTL    time.Duration
 
 	itemsPool sync.Pool
 	queue     chan *cmdItem
 	wg        sync.WaitGroup
 
 	rdb redis.Cmdable
+}
+
+func (self *AutoPipe) WithFlushInterval(t time.Duration) *AutoPipe {
+	self.flushInterval = t
+	return self
 }
 
 func (self *AutoPipe) WithGetRefreshTTL(ttl time.Duration) *AutoPipe {
@@ -41,7 +53,6 @@ func (self *AutoPipe) WithMaxWeight(w int) *AutoPipe {
 }
 
 func (self *AutoPipe) queueItems(items *cmdItems) error {
-	items.EndBatch()
 	err := items.Each(func(item *cmdItem) { self.queue <- item }).Wait()
 	if err != nil {
 		return err
@@ -50,6 +61,21 @@ func (self *AutoPipe) queueItems(items *cmdItems) error {
 }
 
 // --------------------------------------------------
+
+func MakeSetIter3(
+	ctx context.Context, keys []string, blobs [][]byte, times []time.Duration,
+) (context.Context, int, func(itemIdx int) (key string, b []byte, ttl time.Duration)) {
+	return ctx, len(keys),
+		func(itemIdx int) (key string, b []byte, ttl time.Duration) {
+			return keys[itemIdx], blobs[itemIdx], times[itemIdx]
+		}
+}
+
+func MakeGetIter3(
+	ctx context.Context, keys []string,
+) (context.Context, int, func(itemIdx int) string) {
+	return ctx, len(keys), func(itemIdx int) string { return keys[itemIdx] }
+}
 
 func cmdBytes(cmd redis.Cmder, canceled error) ([]byte, error) {
 	if canceled != nil {

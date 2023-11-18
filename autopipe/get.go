@@ -32,7 +32,6 @@ func (self *AutoPipe) appendGet(ctx context.Context, items *cmdItems,
 		Cmd: func(ctx context.Context, pipe redis.Pipeliner) error {
 			return self.getter(ctx, pipe, key)
 		},
-		Batch: true,
 	})
 	item.Callback = func(cmd redis.Cmder, canceled error) error {
 		defer items.Done()

@@ -2,6 +2,7 @@ package autopipe
 
 import (
 	"context"
+	"time"
 )
 
 func (self *AutoPipe) Go(ctx context.Context) {
@@ -14,6 +15,8 @@ func (self *AutoPipe) loop(ctx context.Context) {
 	defer self.wg.Done()
 
 	b := self.itemsBuf()
+	tick := time.NewTicker(self.flushInterval)
+
 	for {
 		var wantFlush bool
 		select {
@@ -22,38 +25,25 @@ func (self *AutoPipe) loop(ctx context.Context) {
 				wantFlush = true
 			}
 		case <-ctx.Done():
-		default:
-			if b.WantFlush() {
-				wantFlush = true
-			} else {
-				wantFlush = self.waitQueue(ctx, b)
-			}
+			wantFlush = true
+		case <-tick.C:
+			wantFlush = !b.Empty()
 		}
-		if wantFlush || ctx.Err() != nil {
+		if wantFlush {
 			self.flushQueue(ctx, b)
-			if ctx.Err() == nil {
-				b = self.itemsBuf()
+			if ctx.Err() != nil {
+				break
 			}
+			b = self.itemsBuf()
 		}
 	}
-}
-
-func (self *AutoPipe) waitQueue(ctx context.Context, b *itemsBuf) bool {
-	select {
-	case item := <-self.queue:
-		if b.Append(ctx, item) >= self.maxWeight {
-			return true
-		}
-	case <-ctx.Done():
-	}
-	return false
 }
 
 func (self *AutoPipe) flushQueue(ctx context.Context, b *itemsBuf) {
 	switch {
 	case ctx.Err() != nil:
 		self.cancelItemsBuf(b, ctx.Err())
-	case len(b.Items) == 0:
+	case b.Empty():
 		self.freeItemsBuf(b)
 	default:
 		self.wg.Add(1)

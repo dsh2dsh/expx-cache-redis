@@ -13,7 +13,6 @@ type cmdItem struct {
 	Callback func(cmd redis.Cmder, canceled error) error
 	Bytes    []byte
 
-	Batch  bool
 	Weight int
 
 	err error
@@ -119,12 +118,6 @@ func (self *cmdItems) Wait() error {
 	return nil
 }
 
-func (self *cmdItems) EndBatch() {
-	if self.len() > 0 {
-		self.last().Batch = false
-	}
-}
-
 func (self *cmdItems) last() *cmdItem {
 	if self.len() > 1 {
 		return &self.items[len(self.items)-1]
@@ -136,6 +129,9 @@ func (self *cmdItems) Bytes() func() ([]byte, bool) {
 	iter := self.Iter()
 	return func() ([]byte, bool) {
 		item, ok := iter()
+		if !ok {
+			return nil, false
+		}
 		return item.Bytes, ok
 	}
 }
