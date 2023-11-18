@@ -34,7 +34,7 @@ func (self *Classic) WithGetRefreshTTL(ttl time.Duration) *Classic {
 	return self
 }
 
-func (self *Classic) Del(ctx context.Context, keys ...string) error {
+func (self *Classic) Del(ctx context.Context, keys []string) error {
 	for low := 0; low < len(keys); low += self.batchSize {
 		high := min(len(keys), low+self.batchSize)
 		if err := self.rdb.Del(ctx, keys[low:high]...).Err(); err != nil {

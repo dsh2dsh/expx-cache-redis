@@ -70,7 +70,7 @@ func TestClassic_errors(t *testing.T) {
 					Return(redis.NewIntResult(0, wantErr))
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
-				return redisCache.Del(ctx, testKey)
+				return redisCache.Del(ctx, []string{testKey})
 			},
 		},
 		{
@@ -454,7 +454,7 @@ func TestStdRedis_Del_WithBatchSize(t *testing.T) {
 					})
 			}
 
-			require.NoError(t, redisCache.Del(ctx, keys[:nKeys]...))
+			require.NoError(t, redisCache.Del(ctx, keys[:nKeys]))
 			assert.Equal(t, wantKeys, gotKeys)
 		})
 	}
