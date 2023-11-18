@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caarlos0/env/v10"
+	dotenv "github.com/dsh2dsh/expx-dotenv"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -17,6 +19,46 @@ import (
 
 const testKey = "mykey"
 
+func MustNew() *Classic {
+	rdb, err := NewRedisClient()
+	if err != nil {
+		panic(err)
+	} else if rdb == nil {
+		panic("requires redis connection")
+	}
+	return New(rdb)
+}
+
+func NewRedisClient() (*redis.Client, error) {
+	cfg := struct {
+		WithRedis string `env:"WITH_REDIS"`
+	}{
+		WithRedis: "skip", // "redis://localhost:6379/1",
+	}
+
+	//nolint:wrapcheck
+	err := dotenv.New().WithDepth(3).WithEnvSuffix("test").Load(func() error {
+		return env.Parse(&cfg)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("load .env: %w", err)
+	} else if cfg.WithRedis == "skip" {
+		return nil, nil
+	}
+
+	opt, err := redis.ParseURL(cfg.WithRedis)
+	if err != nil {
+		return nil, fmt.Errorf("parse redis URL %q: %w", cfg.WithRedis, err)
+	}
+
+	rdb := redis.NewClient(opt)
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		return nil, fmt.Errorf("ping redis at %q: %w", cfg.WithRedis, err)
+	}
+
+	return rdb, nil
+}
+
 func valueNoError[V any](t *testing.T) func(val V, err error) V {
 	return func(val V, err error) V {
 		require.NoError(t, err)
@@ -24,25 +66,12 @@ func valueNoError[V any](t *testing.T) func(val V, err error) V {
 	}
 }
 
-func msetIter3(
-	ctx context.Context, keys []string, blobs [][]byte, times []time.Duration,
-) (context.Context, int, func(itemIdx int) (key string, b []byte, ttl time.Duration)) {
-	return ctx, len(keys),
-		func(itemIdx int) (key string, b []byte, ttl time.Duration) {
-			return keys[itemIdx], blobs[itemIdx], times[itemIdx]
-		}
-}
-
-func mgetIter3(
-	ctx context.Context, keys []string,
-) (context.Context, int, func(itemIdx int) string) {
-	return ctx, len(keys), func(itemIdx int) string { return keys[itemIdx] }
-}
-
 func bytesFromIter(iter func() ([]byte, bool)) []byte {
 	b, _ := iter()
 	return b
 }
+
+// --------------------------------------------------
 
 func TestNew(t *testing.T) {
 	redisCache := New(nil)
@@ -83,7 +112,7 @@ func TestClassic_errors(t *testing.T) {
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
 				_, err := redisCache.Get(
-					mgetIter3(ctx, []string{testKey, "key2", "key3"}))
+					MakeGetIter3(ctx, []string{testKey, "key2", "key3"}))
 				return err
 			},
 		},
@@ -109,7 +138,7 @@ func TestClassic_errors(t *testing.T) {
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
 				_, err := redisCache.Get(
-					mgetIter3(ctx, []string{testKey, "key2", "key3"}))
+					MakeGetIter3(ctx, []string{testKey, "key2", "key3"}))
 				return err
 			},
 		},
@@ -129,7 +158,7 @@ func TestClassic_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
-				_, err := redisCache.Get(mgetIter3(ctx, []string{testKey, "key2"}))
+				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
 				return err
 			},
 		},
@@ -150,7 +179,7 @@ func TestClassic_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
-				_, err := redisCache.Get(mgetIter3(ctx, []string{testKey, "key2"}))
+				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
 				return err
 			},
 		},
@@ -171,7 +200,7 @@ func TestClassic_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
-				_, err := redisCache.Get(mgetIter3(ctx, []string{testKey, "key2"}))
+				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
 				return err
 			},
 		},
@@ -192,7 +221,7 @@ func TestClassic_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
-				_, err := redisCache.Get(mgetIter3(ctx, []string{testKey, "key2"}))
+				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
 				return err
 			},
 			assertErr: func(t *testing.T, err error) {
@@ -207,7 +236,7 @@ func TestClassic_errors(t *testing.T) {
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
 				err := redisCache.Set(
-					msetIter3(ctx, []string{testKey}, [][]byte{[]byte("abc")}, ttls))
+					MakeSetIter3(ctx, []string{testKey}, [][]byte{[]byte("abc")}, ttls))
 				return err
 			},
 		},
@@ -224,7 +253,7 @@ func TestClassic_errors(t *testing.T) {
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
 				err := redisCache.Set(
-					msetIter3(ctx, []string{testKey, "key2"},
+					MakeSetIter3(ctx, []string{testKey, "key2"},
 						[][]byte{[]byte("abc"), []byte("abc")}, ttls))
 				return err
 			},
@@ -250,7 +279,7 @@ func TestClassic_errors(t *testing.T) {
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
 				err := redisCache.Set(
-					msetIter3(ctx, []string{testKey, "key2", "key3"},
+					MakeSetIter3(ctx, []string{testKey, "key2", "key3"},
 						[][]byte{[]byte("abc"), []byte("abc"), []byte("abc")}, ttls))
 				return err
 			},
@@ -269,7 +298,7 @@ func TestClassic_errors(t *testing.T) {
 			},
 			do: func(t *testing.T, redisCache *Classic) error {
 				err := redisCache.Set(
-					msetIter3(ctx, []string{testKey, testKey},
+					MakeSetIter3(ctx, []string{testKey, testKey},
 						[][]byte{[]byte("abc"), []byte("abc")}, ttls))
 				return err
 			},
@@ -335,7 +364,7 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 			},
 			cacheOp: func(t *testing.T, redisCache *Classic, nKeys int) {
 				bytesIter := valueNoError[func() ([]byte, bool)](t)(
-					redisCache.Get(mgetIter3(ctx, keys[:nKeys])))
+					redisCache.Get(MakeGetIter3(ctx, keys[:nKeys])))
 				for b, ok := bytesIter(); ok; b, ok = bytesIter() {
 					assert.Nil(t, b)
 				}
@@ -359,7 +388,7 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 			},
 			cacheOp: func(t *testing.T, redisCache *Classic, nKeys int) {
 				require.NoError(t, redisCache.Set(
-					msetIter3(ctx, keys[:nKeys], blobs[:nKeys], times[:nKeys])))
+					MakeSetIter3(ctx, keys[:nKeys], blobs[:nKeys], times[:nKeys])))
 			},
 		},
 	}
@@ -484,7 +513,7 @@ func TestStdRedis_respectRefreshTTL(t *testing.T) {
 			name: "Get without refreshTTL",
 			expect: func(redisCache *Classic, rdb *mocks.MockCmdable) ([]byte, error) {
 				rdb.EXPECT().Get(ctx, testKey).Return(strResult)
-				bytesIter, err := redisCache.Get(mgetIter3(ctx, []string{testKey}))
+				bytesIter, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey}))
 				return bytesFromIter(bytesIter), err
 			},
 		},
@@ -493,7 +522,7 @@ func TestStdRedis_respectRefreshTTL(t *testing.T) {
 			expect: func(redisCache *Classic, rdb *mocks.MockCmdable) ([]byte, error) {
 				redisCache.WithGetRefreshTTL(ttl)
 				rdb.EXPECT().GetEx(ctx, testKey, ttl).Return(strResult)
-				bytesIter, err := redisCache.Get(mgetIter3(ctx, []string{testKey}))
+				bytesIter, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey}))
 				return bytesFromIter(bytesIter), err
 			},
 		},
@@ -535,8 +564,46 @@ func TestStdRedis_Set_skipEmptyItems(t *testing.T) {
 	redisCache := New(rdb)
 	require.NotNil(t, redisCache)
 	require.NoError(t, redisCache.Set(
-		msetIter3(ctx,
+		MakeSetIter3(ctx,
 			[]string{testKey, testKey, testKey, testKey},
 			[][]byte{{}, foobar, foobar, foobar},
 			[]time.Duration{ttl, 0, -1, ttl})))
+}
+
+// --------------------------------------------------
+
+func BenchmarkClassic_Get(b *testing.B) {
+	redisCache := MustNew()
+	ctx := context.Background()
+
+	allKeys := []string{"key1"}
+
+	b.SetParallelism(64)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, err := redisCache.Get(MakeGetIter3(ctx, allKeys))
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkClassic_Set(b *testing.B) {
+	redisCache := MustNew()
+	ctx := context.Background()
+
+	allKeys := []string{"key1"}
+	allValues := [][]byte{[]byte("value1")}
+	allTimes := []time.Duration{time.Minute}
+
+	b.SetParallelism(64)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			err := redisCache.Set(MakeSetIter3(ctx, allKeys, allValues, allTimes))
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
