@@ -77,6 +77,7 @@ func TestNew(t *testing.T) {
 	redisCache := New(nil)
 	require.IsType(t, new(Classic), redisCache)
 	assert.Nil(t, redisCache.rdb)
+	assert.Equal(t, defaultBatchSize, redisCache.batchSize)
 }
 
 func TestClassic_errors(t *testing.T) {
@@ -103,7 +104,17 @@ func TestClassic_errors(t *testing.T) {
 			},
 		},
 		{
-			name: "Get error from getter",
+			name: "Get error from getter 1",
+			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
+				rdb.EXPECT().Get(ctx, testKey).Return(redis.NewStringResult("", wantErr))
+			},
+			do: func(t *testing.T, redisCache *Classic) error {
+				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey}))
+				return err
+			},
+		},
+		{
+			name: "Get error from getter 2",
 			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
 				pipe := mocks.NewMockPipeliner(t)
 				pipe.EXPECT().Get(ctx, testKey).Return(
@@ -229,6 +240,28 @@ func TestClassic_errors(t *testing.T) {
 			},
 		},
 		{
+			name: "Get with Nil",
+			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
+				pipe := mocks.NewMockPipeliner(t)
+				pipe.EXPECT().Get(ctx, mock.Anything).Return(redis.NewStringResult("", nil))
+				pipe.EXPECT().Len().Return(2)
+				pipe.EXPECT().Exec(ctx).Return(
+					[]redis.Cmder{
+						redis.NewStringResult("", nil),
+						redis.NewStringResult("", redis.Nil),
+					},
+					nil)
+				rdb.EXPECT().Pipeline().Return(pipe)
+			},
+			do: func(t *testing.T, redisCache *Classic) error {
+				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
+				return err
+			},
+			assertErr: func(t *testing.T, err error) {
+				require.NoError(t, err)
+			},
+		},
+		{
 			name: "Set error from SET 1",
 			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
 				rdb.EXPECT().Set(ctx, testKey, mock.Anything, ttl).Return(
@@ -346,7 +379,7 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 	tests := []struct {
 		name     string
 		singleOp func(rdb *mocks.MockCmdable)
-		pipeOp   func(pipe *mocks.MockPipeliner, fn func())
+		pipeOp   func(pipe *mocks.MockPipeliner, fn func(cmd redis.Cmder))
 		cacheOp  func(t *testing.T, redisCache *Classic, nKeys int)
 	}{
 		{
@@ -355,11 +388,12 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 				rdb.EXPECT().Get(ctx, mock.Anything).Return(
 					redis.NewStringResult("", nil))
 			},
-			pipeOp: func(pipe *mocks.MockPipeliner, fn func()) {
+			pipeOp: func(pipe *mocks.MockPipeliner, fn func(cmd redis.Cmder)) {
 				pipe.EXPECT().Get(ctx, mock.Anything).RunAndReturn(
 					func(ctx context.Context, key string) *redis.StringCmd {
-						fn()
-						return redis.NewStringResult("", nil)
+						cmd := redis.NewStringResult("", nil)
+						fn(cmd)
+						return cmd
 					})
 			},
 			cacheOp: func(t *testing.T, redisCache *Classic, nKeys int) {
@@ -376,13 +410,14 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 				rdb.EXPECT().Set(ctx, mock.Anything, blob, ttl).Return(
 					redis.NewStatusResult("", nil))
 			},
-			pipeOp: func(pipe *mocks.MockPipeliner, fn func()) {
+			pipeOp: func(pipe *mocks.MockPipeliner, fn func(cmd redis.Cmder)) {
 				pipe.EXPECT().Set(ctx, mock.Anything, blob, ttl).RunAndReturn(
 					func(
 						ctx context.Context, key string, v any, ttl time.Duration,
 					) *redis.StatusCmd {
-						fn()
-						return redis.NewStatusResult("", nil)
+						cmd := redis.NewStatusResult("", nil)
+						fn(cmd)
+						return cmd
 					},
 				)
 			},
@@ -403,9 +438,8 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 		for nKeys := 0; nKeys <= len(keys); nKeys++ {
 			t.Run(fmt.Sprintf("%s with %d keys", tt.name, nKeys), func(t *testing.T) {
 				rdb := mocks.NewMockCmdable(t)
-				redisCache := New(rdb)
+				redisCache := New(rdb).WithBatchSize(batchSize)
 				require.NotNil(t, redisCache)
-				redisCache.WithBatchSize(batchSize)
 
 				if nKeys == 1 && tt.singleOp != nil {
 					tt.singleOp(rdb)
@@ -423,18 +457,19 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 				pipe := mocks.NewMockPipeliner(t)
 				rdb.EXPECT().Pipeline().Return(pipe)
 
-				opCnt := 0
+				var cmds []redis.Cmder
 				if nKeys > 0 {
-					tt.pipeOp(pipe, func() { opCnt++ })
-					pipe.EXPECT().Len().RunAndReturn(func() int { return opCnt })
+					tt.pipeOp(pipe, func(cmd redis.Cmder) { cmds = append(cmds, cmd) })
+					pipe.EXPECT().Len().RunAndReturn(func() int { return len(cmds) })
 				}
 
 				var got []int
 				pipe.EXPECT().Exec(ctx).RunAndReturn(
 					func(ctx context.Context) ([]redis.Cmder, error) {
-						got = append(got, opCnt)
-						opCnt = 0
-						return nil, nil
+						got = append(got, len(cmds))
+						gotCmds := cmds
+						cmds = cmds[:0]
+						return gotCmds, nil
 					}).Times(len(expect))
 
 				tt.cacheOp(t, redisCache, nKeys)
