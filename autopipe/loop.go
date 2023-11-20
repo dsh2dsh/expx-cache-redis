@@ -22,7 +22,7 @@ func (self *AutoPipe) loop(ctx context.Context) {
 		var wantFlush bool
 		select {
 		case item := <-self.queue:
-			if b.Append(ctx, item) >= self.maxWeight {
+			if b.Append(item) >= self.maxWeight {
 				wantFlush = true
 			}
 		case <-ctx.Done():

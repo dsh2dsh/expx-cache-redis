@@ -33,7 +33,7 @@ type itemsBuf struct {
 	extWeight int
 }
 
-func (self *itemsBuf) Append(ctx context.Context, item *cmdItem) int {
+func (self *itemsBuf) Append(item *cmdItem) int {
 	self.Items = append(self.Items, item)
 	if item.Weight > 1 {
 		self.extWeight += item.Weight - 1
@@ -57,11 +57,10 @@ func (self *itemsBuf) Exec(ctx context.Context, pipe redis.Pipeliner) {
 
 	var nextItem int
 	for _, cmd := range cmds {
-		for self.Items[nextItem].Err() != nil {
-			nextItem++
-		}
 		item := self.Items[nextItem]
-		item.Process(cmd)
+		if item.Err() == nil {
+			item.Process(cmd)
+		}
 		nextItem++
 	}
 }
@@ -76,18 +75,4 @@ func (self *itemsBuf) Cancel(err error) {
 	for _, item := range self.Items {
 		item.Cancel(err)
 	}
-}
-
-func (self *itemsBuf) WantFlush() bool {
-	if item := self.lastItem(); item != nil {
-		return item.Ctx.Err() != nil
-	}
-	return false
-}
-
-func (self *itemsBuf) lastItem() *cmdItem {
-	if len(self.Items) == 0 {
-		return nil
-	}
-	return self.Items[len(self.Items)-1]
 }
