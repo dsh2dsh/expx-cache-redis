@@ -16,6 +16,7 @@ func (self *AutoPipe) loop(ctx context.Context) {
 
 	b := self.itemsBuf()
 	tick := time.NewTicker(self.flushInterval)
+	defer tick.Stop()
 
 	for {
 		var wantFlush bool
