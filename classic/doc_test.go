@@ -33,8 +33,4 @@ func Example() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// DISABLED Output:
-	// value1
-	// value2
 }

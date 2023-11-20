@@ -59,13 +59,6 @@ func NewRedisClient() (*redis.Client, error) {
 	return rdb, nil
 }
 
-func valueNoError[V any](t *testing.T) func(val V, err error) V {
-	return func(val V, err error) V {
-		require.NoError(t, err)
-		return val
-	}
-}
-
 func bytesFromIter(iter func() ([]byte, bool)) []byte {
 	b, _ := iter()
 	return b
@@ -73,11 +66,89 @@ func bytesFromIter(iter func() ([]byte, bool)) []byte {
 
 // --------------------------------------------------
 
-func TestNew(t *testing.T) {
-	redisCache := New(nil)
-	require.IsType(t, new(Classic), redisCache)
-	assert.Nil(t, redisCache.rdb)
-	assert.Equal(t, defaultBatchSize, redisCache.batchSize)
+func TestClassic(t *testing.T) {
+	tests := []struct {
+		name   string
+		keys   []string
+		values [][]byte
+		ttl    []time.Duration
+		cfg    func(redisCache *Classic)
+	}{
+		{
+			name:   "1 key",
+			keys:   []string{"key1"},
+			values: [][]byte{[]byte("value1")},
+			ttl:    []time.Duration{time.Minute},
+		},
+		{
+			name:   "2 keys",
+			keys:   []string{"key1", "key2"},
+			values: [][]byte{[]byte("value1"), []byte("value2")},
+			ttl:    []time.Duration{time.Minute, time.Minute},
+		},
+		{
+			name:   "3 keys WithBatchSize 2",
+			keys:   []string{"key1", "key2", "key3"},
+			values: [][]byte{[]byte("value1"), []byte("value2"), []byte("value3")},
+			ttl:    []time.Duration{time.Minute, time.Minute, time.Minute},
+			cfg: func(redisCache *Classic) {
+				redisCache.WithBatchSize(2)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			redisCache := testNew(t, tt.cfg)
+			testAutoPipe(t, redisCache, tt.keys, tt.values, tt.ttl)
+		})
+	}
+}
+
+func testNew(t *testing.T, cacheOpts ...func(*Classic)) *Classic {
+	rdb := valueNoError[*redis.Client](t)(NewRedisClient())
+	if rdb == nil {
+		t.Skipf("skip %q, because no Redis connection", t.Name())
+	} else {
+		require.NoError(t, rdb.FlushDB(context.Background()).Err())
+		t.Cleanup(func() {
+			require.NoError(t, rdb.FlushDB(context.Background()).Err())
+		})
+	}
+
+	redisCache := New(rdb)
+	for _, opt := range cacheOpts {
+		if opt != nil {
+			opt(redisCache)
+		}
+	}
+	return redisCache
+}
+
+func valueNoError[V any](t *testing.T) func(val V, err error) V {
+	return func(val V, err error) V {
+		require.NoError(t, err)
+		return val
+	}
+}
+
+func testAutoPipe(
+	t *testing.T, redisCache *Classic, keys []string, values [][]byte,
+	ttl []time.Duration,
+) {
+	ctx := context.Background()
+
+	require.NoError(t, redisCache.Set(MakeSetIter3(ctx, keys, values, ttl)))
+	iterBytes, err := redisCache.Get(MakeGetIter3(ctx, keys))
+	require.NoError(t, err)
+
+	var bytes [][]byte
+	for b, ok := iterBytes(); ok; b, ok = iterBytes() {
+		bytes = append(bytes, b)
+	}
+	assert.Equal(t, values, bytes)
+
+	require.NoError(t, redisCache.Del(ctx, keys))
 }
 
 func TestClassic_errors(t *testing.T) {
