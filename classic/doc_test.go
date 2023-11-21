@@ -10,7 +10,7 @@ import (
 )
 
 func Example() {
-	redisCache := classic.MustNew()
+	redisCache, _ := classic.MustNew()
 	ctx := context.Background()
 
 	err := redisCache.Set(classic.MakeSetIter3(ctx, []string{"key1", "key2"},

@@ -13,20 +13,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 
 	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
 )
 
 const testKey = "mykey"
 
-func MustNew() *Classic {
+func MustNew() (*Classic, *redis.Client) {
 	rdb, err := NewRedisClient()
 	if err != nil {
 		panic(err)
 	} else if rdb == nil {
 		panic("requires redis connection")
 	}
-	return New(rdb)
+	return New(rdb), rdb
 }
 
 func NewRedisClient() (*redis.Client, error) {
@@ -66,7 +67,35 @@ func bytesFromIter(iter func() ([]byte, bool)) []byte {
 
 // --------------------------------------------------
 
-func TestClassic(t *testing.T) {
+func TestClassicSuite(t *testing.T) {
+	rdb := valueNoError[*redis.Client](t)(NewRedisClient())
+	if rdb == nil {
+		t.Skipf("skip %q, because no Redis connection", t.Name())
+	} else {
+		require.NoError(t, rdb.FlushDB(context.Background()).Err())
+		t.Cleanup(func() { require.NoError(t, rdb.Close()) })
+	}
+
+	suite.Run(t, &ClassicTestSuite{rdb: rdb})
+}
+
+func valueNoError[V any](t *testing.T) func(val V, err error) V {
+	return func(val V, err error) V {
+		require.NoError(t, err)
+		return val
+	}
+}
+
+type ClassicTestSuite struct {
+	suite.Suite
+	rdb *redis.Client
+}
+
+func (self *ClassicTestSuite) TearDownTest() {
+	self.Require().NoError(self.rdb.FlushDB(context.Background()).Err())
+}
+
+func (self *ClassicTestSuite) TestClassic() {
 	tests := []struct {
 		name   string
 		keys   []string
@@ -98,25 +127,15 @@ func TestClassic(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			redisCache := testNew(t, tt.cfg)
-			testAutoPipe(t, redisCache, tt.keys, tt.values, tt.ttl)
+		self.Run(tt.name, func() {
+			redisCache := self.testNew(tt.cfg)
+			self.testClassic(redisCache, tt.keys, tt.values, tt.ttl)
 		})
 	}
 }
 
-func testNew(t *testing.T, cacheOpts ...func(*Classic)) *Classic {
-	rdb := valueNoError[*redis.Client](t)(NewRedisClient())
-	if rdb == nil {
-		t.Skipf("skip %q, because no Redis connection", t.Name())
-	} else {
-		require.NoError(t, rdb.FlushDB(context.Background()).Err())
-		t.Cleanup(func() {
-			require.NoError(t, rdb.FlushDB(context.Background()).Err())
-		})
-	}
-
-	redisCache := New(rdb)
+func (self *ClassicTestSuite) testNew(cacheOpts ...func(*Classic)) *Classic {
+	redisCache := New(self.rdb)
 	for _, opt := range cacheOpts {
 		if opt != nil {
 			opt(redisCache)
@@ -125,30 +144,22 @@ func testNew(t *testing.T, cacheOpts ...func(*Classic)) *Classic {
 	return redisCache
 }
 
-func valueNoError[V any](t *testing.T) func(val V, err error) V {
-	return func(val V, err error) V {
-		require.NoError(t, err)
-		return val
-	}
-}
-
-func testAutoPipe(
-	t *testing.T, redisCache *Classic, keys []string, values [][]byte,
-	ttl []time.Duration,
+func (self *ClassicTestSuite) testClassic(
+	redisCache *Classic, keys []string, values [][]byte, ttl []time.Duration,
 ) {
 	ctx := context.Background()
 
-	require.NoError(t, redisCache.Set(MakeSetIter3(ctx, keys, values, ttl)))
+	self.Require().NoError(redisCache.Set(MakeSetIter3(ctx, keys, values, ttl)))
 	iterBytes, err := redisCache.Get(MakeGetIter3(ctx, keys))
-	require.NoError(t, err)
+	self.Require().NoError(err)
 
 	var bytes [][]byte
 	for b, ok := iterBytes(); ok; b, ok = iterBytes() {
 		bytes = append(bytes, b)
 	}
-	assert.Equal(t, values, bytes)
+	self.Equal(values, bytes)
 
-	require.NoError(t, redisCache.Del(ctx, keys))
+	self.Require().NoError(redisCache.Del(ctx, keys))
 }
 
 func TestClassic_errors(t *testing.T) {
@@ -550,7 +561,7 @@ func TestClassic_MGetSet_WithBatchSize(t *testing.T) {
 	}
 }
 
-func TestStdRedis_Del_WithBatchSize(t *testing.T) {
+func TestClassic_Del_WithBatchSize(t *testing.T) {
 	batchSize := 3
 	maxKeys := 8
 
@@ -595,7 +606,7 @@ func TestStdRedis_Del_WithBatchSize(t *testing.T) {
 	}
 }
 
-func TestStdRedis_WithGetRefreshTTL(t *testing.T) {
+func TestClassic_WithGetRefreshTTL(t *testing.T) {
 	redisCache := New(nil)
 	require.NotNil(t, redisCache)
 
@@ -606,7 +617,7 @@ func TestStdRedis_WithGetRefreshTTL(t *testing.T) {
 	assert.Equal(t, ttl, redisCache.refreshTTL)
 }
 
-func TestStdRedis_respectRefreshTTL(t *testing.T) {
+func TestClassic_respectRefreshTTL(t *testing.T) {
 	ctx := context.Background()
 	ttl := time.Minute
 	strResult := redis.NewStringResult("", nil)
@@ -645,7 +656,7 @@ func TestStdRedis_respectRefreshTTL(t *testing.T) {
 	}
 }
 
-func TestStdRedis_Set_skipEmptyItems(t *testing.T) {
+func TestClassic_Set_skipEmptyItems(t *testing.T) {
 	ctx := context.Background()
 	foobar := []byte("foobar")
 	ttl := time.Minute
@@ -679,7 +690,7 @@ func TestStdRedis_Set_skipEmptyItems(t *testing.T) {
 // --------------------------------------------------
 
 func BenchmarkClassic_Get(b *testing.B) {
-	redisCache := MustNew()
+	redisCache, rdb := MustNew()
 	ctx := context.Background()
 
 	allKeys := []string{"key1"}
@@ -693,10 +704,13 @@ func BenchmarkClassic_Get(b *testing.B) {
 			}
 		}
 	})
+	b.StopTimer()
+
+	rdb.Close()
 }
 
 func BenchmarkClassic_Set(b *testing.B) {
-	redisCache := MustNew()
+	redisCache, rdb := MustNew()
 	ctx := context.Background()
 
 	allKeys := []string{"key1"}
@@ -712,4 +726,7 @@ func BenchmarkClassic_Set(b *testing.B) {
 			}
 		}
 	})
+	b.StopTimer()
+
+	rdb.Close()
 }
