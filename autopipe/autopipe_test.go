@@ -13,18 +13,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 
 	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
 )
 
-func MustNew() *AutoPipe {
+func MustNew() (*AutoPipe, *redis.Client) {
 	rdb, err := NewRedisClient()
 	if err != nil {
 		panic(err)
 	} else if rdb == nil {
 		panic("requires redis connection")
 	}
-	return New(rdb)
+	return New(rdb), rdb
 }
 
 func NewRedisClient() (*redis.Client, error) {
@@ -60,7 +61,7 @@ func NewRedisClient() (*redis.Client, error) {
 // --------------------------------------------------
 
 func BenchmarkAutoPipe_Get(b *testing.B) {
-	redisCache := MustNew()
+	redisCache, rdb := MustNew()
 	ctx, cancel := context.WithCancel(context.Background())
 	redisCache.Go(ctx)
 
@@ -79,10 +80,11 @@ func BenchmarkAutoPipe_Get(b *testing.B) {
 
 	cancel()
 	redisCache.Wait()
+	rdb.Close()
 }
 
 func BenchmarkAutoPipe_Set(b *testing.B) {
-	redisCache := MustNew()
+	redisCache, rdb := MustNew()
 	ctx, cancel := context.WithCancel(context.Background())
 	redisCache.Go(ctx)
 
@@ -103,11 +105,40 @@ func BenchmarkAutoPipe_Set(b *testing.B) {
 
 	cancel()
 	redisCache.Wait()
+	rdb.Close()
 }
 
 // --------------------------------------------------
 
-func TestAutoPipe(t *testing.T) {
+func TestAutoPipeSuite(t *testing.T) {
+	rdb := valueNoError[*redis.Client](t)(NewRedisClient())
+	if rdb == nil {
+		t.Skipf("skip %q, because no Redis connection", t.Name())
+	} else {
+		require.NoError(t, rdb.FlushDB(context.Background()).Err())
+		t.Cleanup(func() { require.NoError(t, rdb.Close()) })
+	}
+
+	suite.Run(t, &AutoPipeTestSuite{rdb: rdb})
+}
+
+func valueNoError[T any](t *testing.T) func(val T, err error) T {
+	return func(val T, err error) T {
+		require.NoError(t, err)
+		return val
+	}
+}
+
+type AutoPipeTestSuite struct {
+	suite.Suite
+	rdb *redis.Client
+}
+
+func (self *AutoPipeTestSuite) TearDownTest() {
+	self.Require().NoError(self.rdb.FlushDB(context.Background()).Err())
+}
+
+func (self *AutoPipeTestSuite) TestAutoPipe() {
 	tests := []struct {
 		name   string
 		keys   []string
@@ -139,43 +170,27 @@ func TestAutoPipe(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			redisCache := testNew(t, tt.cfg)
-			testAutoPipe(t, redisCache, tt.keys, tt.values, tt.ttl)
+		self.Run(tt.name, func() {
+			self.testAutoPipe(self.testNew(tt.cfg), tt.keys, tt.values, tt.ttl)
 		})
 	}
 }
 
-func testNew(t *testing.T, cacheOpts ...func(*AutoPipe)) *AutoPipe {
-	rdb := valueNoError[*redis.Client](t)(NewRedisClient())
-	if rdb == nil {
-		t.Skipf("skip %q, because no Redis connection", t.Name())
-	} else {
-		require.NoError(t, rdb.FlushDB(context.Background()).Err())
-		t.Cleanup(func() {
-			require.NoError(t, rdb.FlushDB(context.Background()).Err())
-		})
-	}
-
-	return testNewWithCmdable(t, rdb, cacheOpts...)
-}
-
-func valueNoError[T any](t *testing.T) func(val T, err error) T {
-	return func(val T, err error) T {
-		require.NoError(t, err)
-		return val
-	}
+func (self *AutoPipeTestSuite) testNew(cacheOpts ...func(*AutoPipe)) *AutoPipe {
+	return testNewWithCmdable(self.T(), self.rdb, cacheOpts...)
 }
 
 func testNewWithCmdable(t *testing.T, rdb redis.Cmdable,
 	cacheOpts ...func(*AutoPipe),
 ) *AutoPipe {
 	redisCache := New(rdb)
+	require.NotNil(t, redisCache)
 	for _, opt := range cacheOpts {
 		if opt != nil {
 			opt(redisCache)
 		}
 	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	redisCache.Go(ctx)
 	t.Cleanup(func() {
@@ -186,26 +201,25 @@ func testNewWithCmdable(t *testing.T, rdb redis.Cmdable,
 	return redisCache
 }
 
-func testAutoPipe(
-	t *testing.T, redisCache *AutoPipe, keys []string, values [][]byte,
-	ttl []time.Duration,
+func (self *AutoPipeTestSuite) testAutoPipe(
+	redisCache *AutoPipe, keys []string, values [][]byte, ttl []time.Duration,
 ) {
 	ctx := context.Background()
 
-	require.NoError(t, redisCache.Set(MakeSetIter3(ctx, keys, values, ttl)))
+	self.Require().NoError(redisCache.Set(MakeSetIter3(ctx, keys, values, ttl)))
 	iterBytes, err := redisCache.Get(MakeGetIter3(ctx, keys))
-	require.NoError(t, err)
+	self.Require().NoError(err)
 
 	var bytes [][]byte
 	for b, ok := iterBytes(); ok; b, ok = iterBytes() {
 		bytes = append(bytes, b)
 	}
-	assert.Equal(t, values, bytes)
+	self.Equal(values, bytes)
 
-	require.NoError(t, redisCache.Del(ctx, keys))
+	self.Require().NoError(redisCache.Del(ctx, keys))
 }
 
-func TestAutoPipe_keyNotFound(t *testing.T) {
+func (self *AutoPipeTestSuite) TestAutoPipe_keyNotFound() {
 	tests := []struct {
 		name   string
 		keys   []string
@@ -223,16 +237,16 @@ func TestAutoPipe_keyNotFound(t *testing.T) {
 		},
 	}
 
-	redisCache := testNew(t)
+	redisCache := self.testNew()
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		self.Run(tt.name, func() {
 			iterBytes, err := redisCache.Get(MakeGetIter3(context.Background(), tt.keys))
-			require.NoError(t, err)
+			self.Require().NoError(err)
 			var bytes [][]byte
 			for b, ok := iterBytes(); ok; b, ok = iterBytes() {
 				bytes = append(bytes, b)
 			}
-			assert.Equal(t, tt.values, bytes)
+			self.Equal(tt.values, bytes)
 		})
 	}
 }

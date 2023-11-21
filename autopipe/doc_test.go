@@ -10,7 +10,7 @@ import (
 )
 
 func Example() {
-	redisCache := autopipe.MustNew()
+	redisCache, _ := autopipe.MustNew()
 	ctx, cancel := context.WithCancel(context.Background())
 	redisCache.Go(ctx)
 
