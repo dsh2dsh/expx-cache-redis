@@ -17,7 +17,7 @@ func (self *AutoPipe) Set(
 
 	for i := 0; i < maxItems; i++ {
 		key, b, ttl := iter(i)
-		if len(b) > 0 && ttl > 0 {
+		if len(b) > 0 {
 			appendSet(ctx, &items, key, b, ttl)
 		}
 	}

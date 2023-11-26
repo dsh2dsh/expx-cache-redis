@@ -179,7 +179,7 @@ func (self *Classic) Set(
 func singleSet(ctx context.Context, pipe redis.Cmdable, key string, b []byte,
 	ttl time.Duration,
 ) error {
-	if len(b) == 0 || ttl <= 0 {
+	if len(b) == 0 {
 		return nil
 	}
 	if err := pipe.Set(ctx, key, b, ttl).Err(); err != nil {
