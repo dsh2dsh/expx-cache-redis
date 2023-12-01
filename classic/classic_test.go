@@ -663,12 +663,12 @@ func TestClassic_Set_skipEmptyItems(t *testing.T) {
 
 	pipe := mocks.NewMockPipeliner(t)
 	cmds := make([]redis.Cmder, 0, 1)
-	pipe.EXPECT().Set(ctx, testKey, foobar, ttl).RunAndReturn(
+	pipe.EXPECT().Set(ctx, testKey, foobar, mock.Anything).RunAndReturn(
 		func(context.Context, string, any, time.Duration) *redis.StatusCmd {
 			cmd := redis.NewStatusResult("", nil)
 			cmds = append(cmds, cmd)
 			return cmd
-		})
+		}).Times(3)
 	pipe.EXPECT().Len().Return(len(cmds))
 	pipe.EXPECT().Exec(ctx).RunAndReturn(
 		func(ctx context.Context) ([]redis.Cmder, error) {
