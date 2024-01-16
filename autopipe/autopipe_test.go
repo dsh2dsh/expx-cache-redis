@@ -35,9 +35,7 @@ func NewRedisClient() (*redis.Client, error) {
 		WithRedis: "skip", // "redis://localhost:6379/1",
 	}
 
-	err := dotenv.New().WithDepth(3).WithEnvSuffix("test").Load(func() error {
-		return env.Parse(&cfg)
-	})
+	err := dotenv.Load(func() error { return env.Parse(&cfg) })
 	if err != nil {
 		return nil, fmt.Errorf("load .env: %w", err)
 	} else if cfg.WithRedis == "skip" {
