@@ -18,7 +18,10 @@ import (
 	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
 )
 
-const testKey = "mykey"
+const (
+	rdbOffset = 0
+	testKey   = "mykey"
+)
 
 func MustNew() (*Classic, *redis.Client) {
 	rdb, err := NewRedisClient()
@@ -48,6 +51,7 @@ func NewRedisClient() (*redis.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse redis URL %q: %w", cfg.WithRedis, err)
 	}
+	opt.DB += rdbOffset
 
 	rdb := redis.NewClient(opt)
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
@@ -69,10 +73,10 @@ func TestClassicSuite(t *testing.T) {
 	if rdb == nil {
 		t.Skipf("skip %q, because no Redis connection", t.Name())
 	} else {
-		require.NoError(t, rdb.FlushDB(context.Background()).Err())
+		ctx := context.Background()
+		require.NoError(t, rdb.FlushDB(ctx).Err())
 		t.Cleanup(func() { require.NoError(t, rdb.Close()) })
 	}
-
 	suite.Run(t, &ClassicTestSuite{rdb: rdb})
 }
 
@@ -85,7 +89,7 @@ func valueNoError[V any](t *testing.T) func(val V, err error) V {
 
 type ClassicTestSuite struct {
 	suite.Suite
-	rdb *redis.Client
+	rdb redis.Cmdable
 }
 
 func (self *ClassicTestSuite) TearDownTest() {
