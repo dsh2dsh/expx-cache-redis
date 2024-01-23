@@ -1,0 +1,53 @@
+package classic
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+func (self *Classic) SetNxGet(ctx context.Context, keySet, value string,
+	ttl time.Duration, keyGet string,
+) (ok bool, b []byte, err error) {
+	cmds, err := self.rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		//nolint:wrapcheck // wrap it outside of Pipelined()
+		if err := pipe.SetNX(ctx, keySet, value, ttl).Err(); err != nil {
+			return err
+		}
+		_, err := self.getter(ctx, pipe, keyGet)
+		return err
+	})
+
+	const errMsg = "setnx %q = %q, get %q: %w"
+	if err != nil && !keyNotFound(err) {
+		err = fmt.Errorf(errMsg, keySet, value, keyGet, err)
+	} else if ok, b, err = cmdBoolBytes(cmds); err != nil {
+		err = fmt.Errorf(errMsg, keySet, value, keyGet, err)
+	}
+	return
+}
+
+func cmdBoolBytes(cmds []redis.Cmder) (ok bool, b []byte, err error) {
+	if len(cmds) < 2 {
+		err = fmt.Errorf("unexpected length of cmds: %v", len(cmds))
+		return
+	} else if ok, err = cmdBool(cmds[0]); err != nil {
+		return
+	} else if b, err = cmdBytes(cmds[1]); err != nil {
+		return
+	}
+	return
+}
+
+func cmdBool(cmd redis.Cmder) (bool, error) {
+	if boolCmd, ok := cmd.(interface{ Result() (bool, error) }); ok {
+		if ok, err := boolCmd.Result(); err != nil {
+			return false, fmt.Errorf("result %q: %w", cmd.Name(), err)
+		} else {
+			return ok, nil
+		}
+	}
+	return false, fmt.Errorf("result %q: unexpected type=%T", cmd.Name(), cmd)
+}

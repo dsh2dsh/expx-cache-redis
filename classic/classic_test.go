@@ -163,6 +163,56 @@ func (self *ClassicTestSuite) testClassic(
 	self.Require().NoError(redisCache.Del(ctx, keys))
 }
 
+func (self *ClassicTestSuite) TestSetNxGet() {
+	const keySet = "key1"
+	const keyGet = "key2"
+	const bar = "bar"
+	ctx := context.Background()
+	ttl := time.Minute
+	foobar := []byte("foobar")
+
+	r := self.testNew()
+	ok, b, err := r.SetNxGet(ctx, keySet, "foo", ttl, keyGet)
+	self.Require().NoError(err)
+	self.True(ok)
+	self.Empty(b)
+	self.Equal("foo", string(self.getKey(r, keySet)))
+
+	ok, b, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	self.Require().NoError(err)
+	self.False(ok)
+	self.Empty(b)
+	self.Equal("foo", string(self.getKey(r, keySet)))
+
+	self.setKey(r, keyGet, foobar, ttl)
+	ok, b, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	self.Require().NoError(err)
+	self.False(ok)
+	self.Equal(foobar, b)
+
+	self.Require().NoError(r.Del(ctx, []string{keySet}))
+	ok, b, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	self.Require().NoError(err)
+	self.True(ok)
+	self.Equal(foobar, b)
+	self.Equal(bar, string(self.getKey(r, keySet)))
+}
+
+func (self *ClassicTestSuite) getKey(r *Classic, key string) []byte {
+	iterBytes, err := r.Get(MakeGetIter3(context.Background(), []string{key}))
+	self.Require().NoError(err)
+	b, ok := iterBytes()
+	self.Require().True(ok)
+	return b
+}
+
+func (self *ClassicTestSuite) setKey(r *Classic, key string, b []byte,
+	ttl time.Duration,
+) {
+	self.Require().NoError(r.Set(MakeSetIter3(
+		context.Background(), []string{key}, [][]byte{b}, []time.Duration{ttl})))
+}
+
 func TestClassic_errors(t *testing.T) {
 	ctx := context.Background()
 	ttl := time.Minute
