@@ -51,3 +51,14 @@ func cmdBool(cmd redis.Cmder) (bool, error) {
 	}
 	return false, fmt.Errorf("result %q: unexpected type=%T", cmd.Name(), cmd)
 }
+
+// --------------------------------------------------
+
+func (self *Classic) Expire(ctx context.Context, key string, ttl time.Duration,
+) (bool, error) {
+	ok, err := self.rdb.Expire(ctx, key, ttl).Result()
+	if err != nil {
+		return false, fmt.Errorf("expire %q, %v: %w", key, ttl, err)
+	}
+	return ok, nil
+}

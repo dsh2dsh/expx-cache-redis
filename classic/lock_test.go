@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -70,4 +71,46 @@ func TestClassic_SetNxGet_errors(t *testing.T) {
 	}, nil).Once()
 	_, _, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
 	require.NoError(t, err)
+}
+
+func (self *ClassicTestSuite) TestExpire() {
+	ctx := context.Background()
+	ttl := time.Minute
+
+	r := self.testNew()
+	ok, err := r.Expire(ctx, testKey, ttl)
+	self.Require().NoError(err)
+	self.False(ok)
+
+	self.setKey(r, testKey, []byte("foobar"), ttl)
+	ok, err = r.Expire(ctx, testKey, ttl)
+	self.Require().NoError(err)
+	self.True(ok)
+
+	gotTTL, err := self.rdb.TTL(ctx, testKey).Result()
+	self.Require().NoError(err)
+	self.Equal(ttl, gotTTL)
+
+	ttl2 := 2 * time.Minute
+	ok, err = r.Expire(ctx, testKey, ttl2)
+	self.Require().NoError(err)
+	self.True(ok)
+
+	gotTTL, err = self.rdb.TTL(ctx, testKey).Result()
+	self.Require().NoError(err)
+	self.Equal(ttl2, gotTTL)
+}
+
+func TestExpire_error(t *testing.T) {
+	ctx := context.Background()
+	ttl := time.Minute
+	wantErr := errors.New("test error")
+
+	rdb := mocks.NewMockCmdable(t)
+	r := New(rdb)
+
+	rdb.EXPECT().Expire(ctx, testKey, ttl).Return(redis.NewBoolResult(false, wantErr))
+	ok, err := r.Expire(ctx, testKey, ttl)
+	require.ErrorIs(t, err, wantErr)
+	assert.False(t, ok)
 }

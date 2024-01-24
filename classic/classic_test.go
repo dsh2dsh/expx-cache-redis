@@ -213,48 +213,6 @@ func (self *ClassicTestSuite) setKey(r *Classic, key string, b []byte,
 		context.Background(), []string{key}, [][]byte{b}, []time.Duration{ttl})))
 }
 
-func (self *ClassicTestSuite) TestExpire() {
-	ctx := context.Background()
-	ttl := time.Minute
-
-	r := self.testNew()
-	ok, err := r.Expire(ctx, testKey, ttl)
-	self.Require().NoError(err)
-	self.False(ok)
-
-	self.setKey(r, testKey, []byte("foobar"), ttl)
-	ok, err = r.Expire(ctx, testKey, ttl)
-	self.Require().NoError(err)
-	self.True(ok)
-
-	gotTTL, err := self.rdb.TTL(ctx, testKey).Result()
-	self.Require().NoError(err)
-	self.Equal(ttl, gotTTL)
-
-	ttl2 := 2 * time.Minute
-	ok, err = r.Expire(ctx, testKey, ttl2)
-	self.Require().NoError(err)
-	self.True(ok)
-
-	gotTTL, err = self.rdb.TTL(ctx, testKey).Result()
-	self.Require().NoError(err)
-	self.Equal(ttl2, gotTTL)
-}
-
-func TestExpire_error(t *testing.T) {
-	ctx := context.Background()
-	ttl := time.Minute
-	wantErr := errors.New("test error")
-
-	rdb := mocks.NewMockCmdable(t)
-	r := New(rdb)
-
-	rdb.EXPECT().Expire(ctx, testKey, ttl).Return(redis.NewBoolResult(false, wantErr))
-	ok, err := r.Expire(ctx, testKey, ttl)
-	require.ErrorIs(t, err, wantErr)
-	assert.False(t, ok)
-}
-
 func TestClassic_errors(t *testing.T) {
 	ctx := context.Background()
 	ttl := time.Minute
