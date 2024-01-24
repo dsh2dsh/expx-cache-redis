@@ -62,3 +62,18 @@ func (self *Classic) Expire(ctx context.Context, key string, ttl time.Duration,
 	}
 	return ok, nil
 }
+
+func (self *Classic) DeleteWithValue(ctx context.Context, key, value string,
+) (bool, error) {
+	n, err := deleteLua.Run(ctx, self.rdb, []string{key}, value).Int64()
+	if err != nil {
+		return false, fmt.Errorf("delete %q with value %q: %w", key, value, err)
+	}
+	return n == 1, nil
+}
+
+var deleteLua = redis.NewScript(`
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0`)

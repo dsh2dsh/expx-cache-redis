@@ -114,3 +114,37 @@ func TestExpire_error(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 	assert.False(t, ok)
 }
+
+func (self *ClassicTestSuite) TestDeleteWithValue() {
+	const foobar = "foobar"
+	ctx := context.Background()
+	ttl := time.Minute
+
+	r := self.testNew()
+	ok, err := r.DeleteWithValue(ctx, testKey, foobar)
+	self.Require().NoError(err)
+	self.False(ok)
+
+	self.setKey(r, testKey, []byte(foobar), ttl)
+	ok, err = r.DeleteWithValue(ctx, testKey, "foobaz")
+	self.Require().NoError(err)
+	self.False(ok)
+
+	ok, err = r.DeleteWithValue(ctx, testKey, foobar)
+	self.Require().NoError(err)
+	self.True(ok)
+}
+
+func TestDeleteWithValue_error(t *testing.T) {
+	ctx := context.Background()
+	wantErr := errors.New("test error")
+
+	rdb := mocks.NewMockCmdable(t)
+	r := New(rdb)
+
+	rdb.EXPECT().EvalSha(ctx, mock.Anything, []string{testKey}, mock.Anything).
+		Return(redis.NewCmdResult(0, wantErr))
+	ok, err := r.DeleteWithValue(ctx, testKey, "foobar")
+	require.ErrorIs(t, err, wantErr)
+	assert.False(t, ok)
+}
