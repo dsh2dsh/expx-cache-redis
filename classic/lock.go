@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func (self *Classic) SetNxGet(ctx context.Context, keySet, value string,
+func (self *Classic) LockGet(ctx context.Context, keySet, value string,
 	ttl time.Duration, keyGet string,
 ) (ok bool, b []byte, err error) {
 	cmds, err := self.rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
@@ -63,17 +63,21 @@ func (self *Classic) Expire(ctx context.Context, key string, ttl time.Duration,
 	return ok, nil
 }
 
-func (self *Classic) DeleteWithValue(ctx context.Context, key, value string,
+func (self *Classic) Unlock(ctx context.Context, key, value string,
 ) (bool, error) {
-	n, err := deleteLua.Run(ctx, self.rdb, []string{key}, value).Int64()
+	n, err := unlockLua.Run(ctx, self.rdb, []string{key}, value).Int64()
 	if err != nil {
 		return false, fmt.Errorf("delete %q with value %q: %w", key, value, err)
 	}
 	return n == 1, nil
 }
 
-var deleteLua = redis.NewScript(`
-if redis.call("get", KEYS[1]) == ARGV[1] then
-  return redis.call("del", KEYS[1])
+var unlockLua = redis.NewScript(`
+if redis.call( "get", KEYS[1] ) == ARGV[1] then
+  local deleted = redis.call( "del", KEYS[1] )
+  if deleted > 0 then
+    redis.call( "publish", KEYS[1], ARGV[1] )
+  end
+  return deleted
 end
 return 0`)

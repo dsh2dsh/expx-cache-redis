@@ -163,7 +163,7 @@ func (self *ClassicTestSuite) testClassic(
 	self.Require().NoError(redisCache.Del(ctx, keys))
 }
 
-func (self *ClassicTestSuite) TestSetNxGet() {
+func (self *ClassicTestSuite) TestLockGet() {
 	const keySet = "key1"
 	const keyGet = "key2"
 	const bar = "bar"
@@ -172,26 +172,26 @@ func (self *ClassicTestSuite) TestSetNxGet() {
 	foobar := []byte("foobar")
 
 	r := self.testNew()
-	ok, b, err := r.SetNxGet(ctx, keySet, "foo", ttl, keyGet)
+	ok, b, err := r.LockGet(ctx, keySet, "foo", ttl, keyGet)
 	self.Require().NoError(err)
 	self.True(ok)
 	self.Empty(b)
 	self.Equal("foo", string(self.getKey(r, keySet)))
 
-	ok, b, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	self.Require().NoError(err)
 	self.False(ok)
 	self.Empty(b)
 	self.Equal("foo", string(self.getKey(r, keySet)))
 
 	self.setKey(r, keyGet, foobar, ttl)
-	ok, b, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	self.Require().NoError(err)
 	self.False(ok)
 	self.Equal(foobar, b)
 
 	self.Require().NoError(r.Del(ctx, []string{keySet}))
-	ok, b, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	self.Require().NoError(err)
 	self.True(ok)
 	self.Equal(foobar, b)

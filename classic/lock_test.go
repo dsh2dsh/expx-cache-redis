@@ -14,7 +14,7 @@ import (
 	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
 )
 
-func TestClassic_SetNxGet_errors(t *testing.T) {
+func TestClassic_LockGet_errors(t *testing.T) {
 	const keySet = "key1"
 	const keyGet = "key2"
 	const bar = "bar"
@@ -26,7 +26,7 @@ func TestClassic_SetNxGet_errors(t *testing.T) {
 	r := New(rdb)
 
 	rdb.EXPECT().Pipelined(ctx, mock.Anything).Return(nil, wantErr).Once()
-	_, _, err := r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	_, _, err := r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	require.ErrorIs(t, err, wantErr)
 
 	pipe := mocks.NewMockPipeliner(t)
@@ -37,39 +37,39 @@ func TestClassic_SetNxGet_errors(t *testing.T) {
 		) ([]redis.Cmder, error) {
 			return nil, fn(pipe)
 		}).Once()
-	_, _, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	_, _, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	require.ErrorIs(t, err, wantErr)
 
 	rdb.EXPECT().Pipelined(ctx, mock.Anything).Return([]redis.Cmder{}, nil).Once()
-	_, _, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	_, _, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	require.Error(t, err)
 
 	rdb.EXPECT().Pipelined(ctx, mock.Anything).Return([]redis.Cmder{
 		redis.NewBoolResult(false, wantErr),
 		redis.NewStringResult("", wantErr),
 	}, nil).Once()
-	_, _, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	_, _, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	require.ErrorIs(t, err, wantErr)
 
 	rdb.EXPECT().Pipelined(ctx, mock.Anything).Return([]redis.Cmder{
 		redis.NewBoolResult(false, nil),
 		redis.NewStringResult("", wantErr),
 	}, nil).Once()
-	_, _, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	_, _, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	require.ErrorIs(t, err, wantErr)
 
 	rdb.EXPECT().Pipelined(ctx, mock.Anything).Return([]redis.Cmder{
 		redis.NewStringResult("", wantErr),
 		redis.NewStringResult("", wantErr),
 	}, nil).Once()
-	_, _, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	_, _, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	require.Error(t, err)
 
 	rdb.EXPECT().Pipelined(ctx, mock.Anything).Return([]redis.Cmder{
 		redis.NewBoolResult(false, nil),
 		redis.NewStringResult("", nil),
 	}, nil).Once()
-	_, _, err = r.SetNxGet(ctx, keySet, bar, ttl, keyGet)
+	_, _, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
 	require.NoError(t, err)
 }
 
@@ -115,27 +115,27 @@ func TestExpire_error(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func (self *ClassicTestSuite) TestDeleteWithValue() {
+func (self *ClassicTestSuite) TestUnlock() {
 	const foobar = "foobar"
 	ctx := context.Background()
 	ttl := time.Minute
 
 	r := self.testNew()
-	ok, err := r.DeleteWithValue(ctx, testKey, foobar)
+	ok, err := r.Unlock(ctx, testKey, foobar)
 	self.Require().NoError(err)
 	self.False(ok)
 
 	self.setKey(r, testKey, []byte(foobar), ttl)
-	ok, err = r.DeleteWithValue(ctx, testKey, "foobaz")
+	ok, err = r.Unlock(ctx, testKey, "foobaz")
 	self.Require().NoError(err)
 	self.False(ok)
 
-	ok, err = r.DeleteWithValue(ctx, testKey, foobar)
+	ok, err = r.Unlock(ctx, testKey, foobar)
 	self.Require().NoError(err)
 	self.True(ok)
 }
 
-func TestDeleteWithValue_error(t *testing.T) {
+func TestUnlock_error(t *testing.T) {
 	ctx := context.Background()
 	wantErr := errors.New("test error")
 
@@ -144,7 +144,7 @@ func TestDeleteWithValue_error(t *testing.T) {
 
 	rdb.EXPECT().EvalSha(ctx, mock.Anything, []string{testKey}, mock.Anything).
 		Return(redis.NewCmdResult(0, wantErr))
-	ok, err := r.DeleteWithValue(ctx, testKey, "foobar")
+	ok, err := r.Unlock(ctx, testKey, "foobar")
 	require.ErrorIs(t, err, wantErr)
 	assert.False(t, ok)
 }
