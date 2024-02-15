@@ -13,6 +13,8 @@ const defaultBatchSize = 1000
 
 type Cmdable interface {
 	redis.Cmdable
+
+	Subscribe(ctx context.Context, channels ...string) *redis.PubSub
 }
 
 func New(rdb Cmdable) *RedisCache {
@@ -98,7 +100,8 @@ func (self *RedisCache) singleGet(ctx context.Context, key string,
 }
 
 //nolint:wrapcheck // wrap it later
-func (self *RedisCache) getter(ctx context.Context, rdb Cmdable, key string,
+func (self *RedisCache) getter(ctx context.Context, rdb redis.Cmdable,
+	key string,
 ) ([]byte, error) {
 	if self.refreshTTL > 0 {
 		return rdb.GetEx(ctx, key, self.refreshTTL).Bytes()
@@ -178,7 +181,7 @@ func (self *RedisCache) Set(
 	return self.msetPipeExec(ctx, pipe)
 }
 
-func singleSet(ctx context.Context, pipe Cmdable, key string, b []byte,
+func singleSet(ctx context.Context, pipe redis.Cmdable, key string, b []byte,
 	ttl time.Duration,
 ) error {
 	if len(b) == 0 {
