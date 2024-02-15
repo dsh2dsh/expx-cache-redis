@@ -1,4 +1,4 @@
-package classic
+package redis
 
 import (
 	"context"
@@ -11,7 +11,11 @@ import (
 
 const defaultBatchSize = 1000
 
-func New(rdb redis.Cmdable) *Classic {
+type Cmdable interface {
+	redis.Cmdable
+}
+
+func New(rdb Cmdable) *Classic {
 	return &Classic{
 		rdb:       rdb,
 		batchSize: defaultBatchSize,
@@ -19,7 +23,7 @@ func New(rdb redis.Cmdable) *Classic {
 }
 
 type Classic struct {
-	rdb        redis.Cmdable
+	rdb        Cmdable
 	batchSize  int
 	refreshTTL time.Duration
 }
@@ -77,8 +81,7 @@ func (self *Classic) Get(ctx context.Context, maxItems int,
 	return makeBytesIter(blobs), nil
 }
 
-func (self *Classic) singleGet(
-	ctx context.Context, key string,
+func (self *Classic) singleGet(ctx context.Context, key string,
 ) (func() ([]byte, bool), error) {
 	blob, err := self.getter(ctx, self.rdb, key)
 	if err != nil && !keyNotFound(err) {
@@ -95,8 +98,7 @@ func (self *Classic) singleGet(
 }
 
 //nolint:wrapcheck // wrap it later
-func (self *Classic) getter(
-	ctx context.Context, rdb redis.Cmdable, key string,
+func (self *Classic) getter(ctx context.Context, rdb Cmdable, key string,
 ) ([]byte, error) {
 	if self.refreshTTL > 0 {
 		return rdb.GetEx(ctx, key, self.refreshTTL).Bytes()
@@ -176,7 +178,7 @@ func (self *Classic) Set(
 	return self.msetPipeExec(ctx, pipe)
 }
 
-func singleSet(ctx context.Context, pipe redis.Cmdable, key string, b []byte,
+func singleSet(ctx context.Context, pipe Cmdable, key string, b []byte,
 	ttl time.Duration,
 ) error {
 	if len(b) == 0 {
@@ -188,8 +190,7 @@ func singleSet(ctx context.Context, pipe redis.Cmdable, key string, b []byte,
 	return nil
 }
 
-func (self *Classic) msetPipeExec(
-	ctx context.Context, pipe redis.Pipeliner,
+func (self *Classic) msetPipeExec(ctx context.Context, pipe redis.Pipeliner,
 ) error {
 	_, err := pipe.Exec(ctx)
 	if err != nil {

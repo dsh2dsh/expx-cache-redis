@@ -1,4 +1,4 @@
-package classic
+package redis
 
 import (
 	"context"
@@ -89,7 +89,7 @@ func valueNoError[V any](t *testing.T) func(val V, err error) V {
 
 type ClassicTestSuite struct {
 	suite.Suite
-	rdb redis.Cmdable
+	rdb Cmdable
 }
 
 func (self *ClassicTestSuite) TearDownTest() {

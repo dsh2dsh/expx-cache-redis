@@ -1,4 +1,4 @@
-package classic_test
+package redis_test
 
 import (
 	"context"
@@ -6,22 +6,22 @@ import (
 	"log"
 	"time"
 
-	"github.com/dsh2dsh/expx-cache/redis/classic"
+	"github.com/dsh2dsh/expx-cache/redis"
 )
 
 func Example() {
-	redisCache, _ := classic.MustNew()
+	redisCache, _ := redis.MustNew()
 	ctx := context.Background()
 
-	err := redisCache.Set(classic.MakeSetIter3(ctx, []string{"key1", "key2"},
+	err := redisCache.Set(redis.MakeSetIter3(ctx, []string{"key1", "key2"},
 		[][]byte{[]byte("value1"), []byte("value2")},
 		[]time.Duration{time.Minute, 2 * time.Minute}))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	iterBytes, err := redisCache.Get(
-		classic.MakeGetIter3(ctx, []string{"key1", "key2"}))
+	iterBytes, err := redisCache.Get(redis.MakeGetIter3(
+		ctx, []string{"key1", "key2"}))
 	if err != nil {
 		log.Fatal(err)
 	}
