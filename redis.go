@@ -15,30 +15,30 @@ type Cmdable interface {
 	redis.Cmdable
 }
 
-func New(rdb Cmdable) *Classic {
-	return &Classic{
+func New(rdb Cmdable) *RedisCache {
+	return &RedisCache{
 		rdb:       rdb,
 		batchSize: defaultBatchSize,
 	}
 }
 
-type Classic struct {
+type RedisCache struct {
 	rdb        Cmdable
 	batchSize  int
 	refreshTTL time.Duration
 }
 
-func (self *Classic) WithBatchSize(size int) *Classic {
+func (self *RedisCache) WithBatchSize(size int) *RedisCache {
 	self.batchSize = size
 	return self
 }
 
-func (self *Classic) WithGetRefreshTTL(ttl time.Duration) *Classic {
+func (self *RedisCache) WithGetRefreshTTL(ttl time.Duration) *RedisCache {
 	self.refreshTTL = ttl
 	return self
 }
 
-func (self *Classic) Del(ctx context.Context, keys []string) error {
+func (self *RedisCache) Del(ctx context.Context, keys []string) error {
 	for low := 0; low < len(keys); low += self.batchSize {
 		high := min(len(keys), low+self.batchSize)
 		if err := self.rdb.Del(ctx, keys[low:high]...).Err(); err != nil {
@@ -50,7 +50,7 @@ func (self *Classic) Del(ctx context.Context, keys []string) error {
 
 // --------------------------------------------------
 
-func (self *Classic) Get(ctx context.Context, maxItems int,
+func (self *RedisCache) Get(ctx context.Context, maxItems int,
 	keyIter func(itemIdx int) (key string),
 ) (func() ([]byte, bool), error) {
 	if maxItems == 1 {
@@ -81,7 +81,7 @@ func (self *Classic) Get(ctx context.Context, maxItems int,
 	return makeBytesIter(blobs), nil
 }
 
-func (self *Classic) singleGet(ctx context.Context, key string,
+func (self *RedisCache) singleGet(ctx context.Context, key string,
 ) (func() ([]byte, bool), error) {
 	blob, err := self.getter(ctx, self.rdb, key)
 	if err != nil && !keyNotFound(err) {
@@ -98,7 +98,7 @@ func (self *Classic) singleGet(ctx context.Context, key string,
 }
 
 //nolint:wrapcheck // wrap it later
-func (self *Classic) getter(ctx context.Context, rdb Cmdable, key string,
+func (self *RedisCache) getter(ctx context.Context, rdb Cmdable, key string,
 ) ([]byte, error) {
 	if self.refreshTTL > 0 {
 		return rdb.GetEx(ctx, key, self.refreshTTL).Bytes()
@@ -106,7 +106,7 @@ func (self *Classic) getter(ctx context.Context, rdb Cmdable, key string,
 	return rdb.Get(ctx, key).Bytes()
 }
 
-func (self *Classic) mgetPipeExec(
+func (self *RedisCache) mgetPipeExec(
 	ctx context.Context, pipe redis.Pipeliner, blobs [][]byte,
 ) ([][]byte, error) {
 	cmds, err := pipe.Exec(ctx)
@@ -155,7 +155,7 @@ func makeBytesIter(blobs [][]byte) func() ([]byte, bool) {
 
 // --------------------------------------------------
 
-func (self *Classic) Set(
+func (self *RedisCache) Set(
 	ctx context.Context, maxItems int,
 	iter func(itemIdx int) (key string, b []byte, ttl time.Duration),
 ) error {
@@ -190,7 +190,7 @@ func singleSet(ctx context.Context, pipe Cmdable, key string, b []byte,
 	return nil
 }
 
-func (self *Classic) msetPipeExec(ctx context.Context, pipe redis.Pipeliner,
+func (self *RedisCache) msetPipeExec(ctx context.Context, pipe redis.Pipeliner,
 ) error {
 	_, err := pipe.Exec(ctx)
 	if err != nil {

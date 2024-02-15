@@ -14,7 +14,7 @@ import (
 	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
 )
 
-func TestClassic_LockGet_errors(t *testing.T) {
+func TestRedisCache_LockGet_errors(t *testing.T) {
 	const keySet = "key1"
 	const keyGet = "key2"
 	const bar = "bar"
@@ -73,7 +73,7 @@ func TestClassic_LockGet_errors(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func (self *ClassicTestSuite) TestExpire() {
+func (self *RedisCacheTestSuite) TestExpire() {
 	ctx := context.Background()
 	ttl := time.Minute
 
@@ -115,7 +115,7 @@ func TestExpire_error(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func (self *ClassicTestSuite) TestUnlock() {
+func (self *RedisCacheTestSuite) TestUnlock() {
 	const foobar = "foobar"
 	ctx := context.Background()
 	ttl := time.Minute
