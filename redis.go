@@ -28,6 +28,8 @@ type RedisCache struct {
 	rdb        Cmdable
 	batchSize  int
 	refreshTTL time.Duration
+
+	subscribed func(pubsub *redis.PubSub)
 }
 
 func (self *RedisCache) WithBatchSize(size int) *RedisCache {

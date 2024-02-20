@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	rdbOffset = 0
-	testKey   = "mykey"
+	rdbOffset      = 0
+	cacheNamespace = "expx-cache/redis-test:"
+	keyLocked      = cacheNamespace + "lock:"
+	testKey        = cacheNamespace + "test-key"
 )
 
 func MustNew() (*RedisCache, *redis.Client) {
@@ -164,38 +166,42 @@ func (self *RedisCacheTestSuite) testRedisCache(
 }
 
 func (self *RedisCacheTestSuite) TestLockGet() {
-	const keySet = "key1"
-	const keyGet = "key2"
 	const bar = "bar"
+	keySet := self.resolveKeyLock("tests-key")
+	self.T().Logf("keySet=%q", keySet)
 	ctx := context.Background()
 	ttl := time.Minute
 	foobar := []byte("foobar")
 
 	r := self.testNew()
-	ok, b, err := r.LockGet(ctx, keySet, "foo", ttl, keyGet)
+	ok, b, err := r.LockGet(ctx, keySet, "foo", ttl, testKey)
 	self.Require().NoError(err)
 	self.True(ok)
 	self.Empty(b)
 	self.Equal("foo", string(self.getKey(r, keySet)))
 
-	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
+	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, testKey)
 	self.Require().NoError(err)
 	self.False(ok)
 	self.Empty(b)
 	self.Equal("foo", string(self.getKey(r, keySet)))
 
-	self.setKey(r, keyGet, foobar, ttl)
-	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
+	self.setKey(r, testKey, foobar, ttl)
+	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, testKey)
 	self.Require().NoError(err)
 	self.False(ok)
 	self.Equal(foobar, b)
 
 	self.Require().NoError(r.Del(ctx, []string{keySet}))
-	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, keyGet)
+	ok, b, err = r.LockGet(ctx, keySet, bar, ttl, testKey)
 	self.Require().NoError(err)
 	self.True(ok)
 	self.Equal(foobar, b)
 	self.Equal(bar, string(self.getKey(r, keySet)))
+}
+
+func (self *RedisCacheTestSuite) resolveKeyLock(key string) string {
+	return keyLocked + key
 }
 
 func (self *RedisCacheTestSuite) getKey(r *RedisCache, key string) []byte {

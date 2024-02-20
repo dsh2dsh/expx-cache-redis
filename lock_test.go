@@ -75,28 +75,29 @@ func TestRedisCache_LockGet_errors(t *testing.T) {
 
 func (self *RedisCacheTestSuite) TestExpire() {
 	ctx := context.Background()
+	keyLock := self.resolveKeyLock("test-key")
 	ttl := time.Minute
 
 	r := self.testNew()
-	ok, err := r.Expire(ctx, testKey, ttl)
+	ok, err := r.Expire(ctx, keyLock, ttl)
 	self.Require().NoError(err)
 	self.False(ok)
 
-	self.setKey(r, testKey, []byte("foobar"), ttl)
-	ok, err = r.Expire(ctx, testKey, ttl)
+	self.setKey(r, keyLock, []byte("foobar"), ttl)
+	ok, err = r.Expire(ctx, keyLock, ttl)
 	self.Require().NoError(err)
 	self.True(ok)
 
-	gotTTL, err := self.rdb.TTL(ctx, testKey).Result()
+	gotTTL, err := self.rdb.TTL(ctx, keyLock).Result()
 	self.Require().NoError(err)
 	self.Equal(ttl, gotTTL)
 
 	ttl2 := 2 * time.Minute
-	ok, err = r.Expire(ctx, testKey, ttl2)
+	ok, err = r.Expire(ctx, keyLock, ttl2)
 	self.Require().NoError(err)
 	self.True(ok)
 
-	gotTTL, err = self.rdb.TTL(ctx, testKey).Result()
+	gotTTL, err = self.rdb.TTL(ctx, keyLock).Result()
 	self.Require().NoError(err)
 	self.Equal(ttl2, gotTTL)
 }
@@ -118,19 +119,20 @@ func TestExpire_error(t *testing.T) {
 func (self *RedisCacheTestSuite) TestUnlock() {
 	const foobar = "foobar"
 	ctx := context.Background()
+	keyLock := self.resolveKeyLock("test-key")
 	ttl := time.Minute
 
 	r := self.testNew()
-	ok, err := r.Unlock(ctx, testKey, foobar)
+	ok, err := r.Unlock(ctx, keyLock, foobar)
 	self.Require().NoError(err)
 	self.False(ok)
 
-	self.setKey(r, testKey, []byte(foobar), ttl)
-	ok, err = r.Unlock(ctx, testKey, "foobaz")
+	self.setKey(r, keyLock, []byte(foobar), ttl)
+	ok, err = r.Unlock(ctx, keyLock, "foobaz")
 	self.Require().NoError(err)
 	self.False(ok)
 
-	ok, err = r.Unlock(ctx, testKey, foobar)
+	ok, err = r.Unlock(ctx, keyLock, foobar)
 	self.Require().NoError(err)
 	self.True(ok)
 }
