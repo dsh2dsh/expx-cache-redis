@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -55,50 +56,54 @@ func (self *RedisCache) Del(ctx context.Context, keys []string) error {
 // --------------------------------------------------
 
 func (self *RedisCache) Get(ctx context.Context, maxItems int,
-	keyIter func(itemIdx int) (key string),
-) (func() ([]byte, bool), error) {
+	keys iter.Seq[string],
+) iter.Seq2[[]byte, error] {
 	if maxItems == 1 {
-		return self.singleGet(ctx, keyIter(0))
+		for key := range keys {
+			return self.singleGet(ctx, key)
+		}
 	}
 
-	blobs := make([][]byte, 0, maxItems)
-	pipe := self.rdb.Pipeline()
+	return func(yield func([]byte, error) bool) {
+		pipe := self.rdb.Pipeline()
+		for key := range keys {
+			_, err := self.getter(ctx, pipe, key)
+			if err != nil {
+				yield(nil, fmt.Errorf("getter get %q: %w", key, err))
+				return
+			} else if pipe.Len() < self.batchSize {
+				continue
+			}
 
-	for i := 0; i < maxItems; i++ {
-		key := keyIter(i)
-		_, err := self.getter(ctx, pipe, key)
-		if err != nil {
-			return nil, fmt.Errorf("getter get %q: %w", key, err)
+			for b, err := range self.mgetPipeExec(ctx, pipe) {
+				if !yield(b, err) {
+					return
+				}
+			}
 		}
-		if pipe.Len() == self.batchSize {
-			if blobs, err = self.mgetPipeExec(ctx, pipe, blobs); err != nil {
-				return nil, err
+
+		if pipe.Len() == 0 {
+			return
+		}
+
+		for b, err := range self.mgetPipeExec(ctx, pipe) {
+			if !yield(b, err) {
+				return
 			}
 		}
 	}
-
-	blobs, err := self.mgetPipeExec(ctx, pipe, blobs)
-	if err != nil {
-		return nil, err
-	}
-
-	return makeBytesIter(blobs), nil
 }
 
 func (self *RedisCache) singleGet(ctx context.Context, key string,
-) (func() ([]byte, bool), error) {
+) iter.Seq2[[]byte, error] {
 	blob, err := self.getter(ctx, self.rdb, key)
-	if err != nil && !keyNotFound(err) {
-		return nil, fmt.Errorf("getter get %q: %w", key, err)
-	}
-
-	var done bool
-	return func() (b []byte, ok bool) {
-		if !done {
-			b, ok, done = blob, true, true
+	return func(yield func([]byte, error) bool) {
+		if err != nil && !keyNotFound(err) {
+			yield(nil, fmt.Errorf("getter get %q: %w", key, err))
+		} else {
+			yield(blob, nil)
 		}
-		return
-	}, nil
+	}
 }
 
 //nolint:wrapcheck // wrap it later
@@ -111,23 +116,24 @@ func (self *RedisCache) getter(ctx context.Context, rdb redis.Cmdable,
 	return rdb.Get(ctx, key).Bytes()
 }
 
-func (self *RedisCache) mgetPipeExec(
-	ctx context.Context, pipe redis.Pipeliner, blobs [][]byte,
-) ([][]byte, error) {
+func (self *RedisCache) mgetPipeExec(ctx context.Context, pipe redis.Pipeliner,
+) iter.Seq2[[]byte, error] {
 	cmds, err := pipe.Exec(ctx)
-	if err != nil && !keyNotFound(err) {
-		return nil, fmt.Errorf("pipeline: %w", err)
-	}
+	return func(yield func([]byte, error) bool) {
+		if err != nil && !keyNotFound(err) {
+			yield(nil, fmt.Errorf("pipeline: %w", err))
+			return
+		}
 
-	for _, cmd := range cmds {
-		if b, err := cmdBytes(cmd); err != nil {
-			return nil, fmt.Errorf("pipelined: %w", err)
-		} else {
-			blobs = append(blobs, b)
+		for _, cmd := range cmds {
+			if b, err := cmdBytes(cmd); err != nil {
+				yield(nil, fmt.Errorf("pipelined: %w", err))
+				return
+			} else if !yield(b, nil) {
+				return
+			}
 		}
 	}
-
-	return blobs, nil
 }
 
 func cmdBytes(cmd redis.Cmder) ([]byte, error) {
@@ -147,17 +153,6 @@ func keyNotFound(err error) bool {
 	return err != nil && errors.Is(err, redis.Nil)
 }
 
-func makeBytesIter(blobs [][]byte) func() ([]byte, bool) {
-	var nextItem int
-	return func() (b []byte, ok bool) {
-		if nextItem < len(blobs) {
-			b, ok = blobs[nextItem], true
-			nextItem++
-		}
-		return
-	}
-}
-
 // --------------------------------------------------
 
 func (self *RedisCache) Set(
@@ -174,11 +169,16 @@ func (self *RedisCache) Set(
 		key, b, ttl := iter(i)
 		if err := singleSet(ctx, pipe, key, b, ttl); err != nil {
 			return err
-		} else if pipe.Len() == self.batchSize {
-			if err := self.msetPipeExec(ctx, pipe); err != nil {
-				return err
-			}
+		} else if pipe.Len() < self.batchSize {
+			continue
 		}
+		if err := self.msetPipeExec(ctx, pipe); err != nil {
+			return err
+		}
+	}
+
+	if pipe.Len() == 0 {
+		return nil
 	}
 	return self.msetPipeExec(ctx, pipe)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/dsh2dsh/expx-cache/redis"
@@ -20,12 +21,11 @@ func Example() {
 		log.Fatal(err)
 	}
 
-	iterBytes, err := redisCache.Get(redis.MakeGetIter3(
-		ctx, []string{"key1", "key2"}))
-	if err != nil {
-		log.Fatal(err)
-	}
-	for b, ok := iterBytes(); ok; b, ok = iterBytes() {
+	iterBytes := redisCache.Get(ctx, 2, slices.Values([]string{"key1", "key2"}))
+	for b, err := range iterBytes {
+		if err != nil {
+			log.Fatal(err)
+		}
 		fmt.Println(string(b))
 	}
 

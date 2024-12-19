@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
+	"slices"
 	"testing"
 	"time"
 
@@ -61,11 +63,6 @@ func NewRedisClient() (*redis.Client, error) {
 	}
 
 	return rdb, nil
-}
-
-func bytesFromIter(iter func() ([]byte, bool)) []byte {
-	b, _ := iter()
-	return b
 }
 
 // --------------------------------------------------
@@ -147,17 +144,17 @@ func (self *RedisCacheTestSuite) testNew(cacheOpts ...func(*RedisCache)) *RedisC
 	return redisCache
 }
 
-func (self *RedisCacheTestSuite) testRedisCache(
-	redisCache *RedisCache, keys []string, values [][]byte, ttl []time.Duration,
+func (self *RedisCacheTestSuite) testRedisCache(redisCache *RedisCache,
+	keys []string, values [][]byte, ttl []time.Duration,
 ) {
 	ctx := context.Background()
 
 	self.Require().NoError(redisCache.Set(MakeSetIter3(ctx, keys, values, ttl)))
-	iterBytes, err := redisCache.Get(MakeGetIter3(ctx, keys))
-	self.Require().NoError(err)
+	iterBytes := redisCache.Get(ctx, len(keys), slices.Values(keys))
 
-	var bytes [][]byte
-	for b, ok := iterBytes(); ok; b, ok = iterBytes() {
+	bytes := make([][]byte, 0, len(keys))
+	for b, err := range iterBytes {
+		self.Require().NoError(err)
 		bytes = append(bytes, b)
 	}
 	self.Equal(values, bytes)
@@ -205,11 +202,13 @@ func (self *RedisCacheTestSuite) resolveKeyLock(key string) string {
 }
 
 func (self *RedisCacheTestSuite) getKey(r *RedisCache, key string) []byte {
-	iterBytes, err := r.Get(MakeGetIter3(context.Background(), []string{key}))
-	self.Require().NoError(err)
-	b, ok := iterBytes()
-	self.Require().True(ok)
-	return b
+	iterBytes := r.Get(context.Background(), 1, slices.Values([]string{key}))
+	for b, err := range iterBytes {
+		self.Require().NoError(err)
+		return b
+	}
+	self.Require().Fail("Get returned empty iterator")
+	return nil
 }
 
 func (self *RedisCacheTestSuite) setKey(r *RedisCache, key string, b []byte,
@@ -248,8 +247,8 @@ func TestRedisCache_errors(t *testing.T) {
 				rdb.EXPECT().Get(ctx, testKey).Return(redis.NewStringResult("", wantErr))
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey}))
-				return err
+				return iterBytesErr(redisCache.Get(
+					ctx, 1, slices.Values([]string{testKey})))
 			},
 		},
 		{
@@ -261,9 +260,8 @@ func TestRedisCache_errors(t *testing.T) {
 				rdb.EXPECT().Pipeline().Return(pipe)
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(
-					MakeGetIter3(ctx, []string{testKey, "key2", "key3"}))
-				return err
+				return iterBytesErr(redisCache.Get(ctx, 3, slices.Values(
+					[]string{testKey, "key2", "key3"})))
 			},
 		},
 		{
@@ -287,9 +285,8 @@ func TestRedisCache_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(
-					MakeGetIter3(ctx, []string{testKey, "key2", "key3"}))
-				return err
+				return iterBytesErr(redisCache.Get(ctx, 3, slices.Values(
+					[]string{testKey, "key2", "key3"})))
 			},
 		},
 		{
@@ -308,8 +305,8 @@ func TestRedisCache_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
-				return err
+				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
+					[]string{testKey, "key2"})))
 			},
 		},
 		{
@@ -329,8 +326,8 @@ func TestRedisCache_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
-				return err
+				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
+					[]string{testKey, "key2"})))
 			},
 		},
 		{
@@ -350,8 +347,8 @@ func TestRedisCache_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
-				return err
+				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
+					[]string{testKey, "key2"})))
 			},
 		},
 		{
@@ -371,8 +368,8 @@ func TestRedisCache_errors(t *testing.T) {
 					})
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
-				return err
+				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
+					[]string{testKey, "key2"})))
 			},
 			assertErr: func(t *testing.T, err error) {
 				require.ErrorContains(t, err, "unexpected type=")
@@ -393,8 +390,8 @@ func TestRedisCache_errors(t *testing.T) {
 				rdb.EXPECT().Pipeline().Return(pipe)
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
-				_, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey, "key2"}))
-				return err
+				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
+					[]string{testKey, "key2"})))
 			},
 			assertErr: func(t *testing.T, err error) {
 				require.NoError(t, err)
@@ -492,6 +489,15 @@ func TestRedisCache_errors(t *testing.T) {
 	}
 }
 
+func iterBytesErr(seq iter.Seq2[[]byte, error]) error {
+	for _, err := range seq {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func TestRedisCache_WithBatchSize(t *testing.T) {
 	redisCache := New(nil)
 	require.NotNil(t, redisCache)
@@ -536,9 +542,10 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 					})
 			},
 			cacheOp: func(t *testing.T, redisCache *RedisCache, nKeys int) {
-				bytesIter := valueNoError[func() ([]byte, bool)](t)(
-					redisCache.Get(MakeGetIter3(ctx, keys[:nKeys])))
-				for b, ok := bytesIter(); ok; b, ok = bytesIter() {
+				bytesIter := redisCache.Get(ctx, len(keys[:nKeys]),
+					slices.Values(keys[:nKeys]))
+				for b, err := range bytesIter {
+					require.NoError(t, err)
 					assert.Nil(t, b)
 				}
 			},
@@ -591,7 +598,9 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 				for i := 0; i < nExec; i++ {
 					expect = append(expect, redisCache.batchSize)
 				}
-				expect = append(expect, nKeys%redisCache.batchSize)
+				if n := nKeys % redisCache.batchSize; n > 0 {
+					expect = append(expect, n)
+				}
 
 				pipe := mocks.NewMockPipeliner(t)
 				rdb.EXPECT().Pipeline().Return(pipe)
@@ -599,17 +608,19 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 				var cmds []redis.Cmder
 				if nKeys > 0 {
 					tt.pipeOp(pipe, func(cmd redis.Cmder) { cmds = append(cmds, cmd) })
-					pipe.EXPECT().Len().RunAndReturn(func() int { return len(cmds) })
 				}
+				pipe.EXPECT().Len().RunAndReturn(func() int { return len(cmds) })
 
 				var got []int
-				pipe.EXPECT().Exec(ctx).RunAndReturn(
-					func(ctx context.Context) ([]redis.Cmder, error) {
-						got = append(got, len(cmds))
-						gotCmds := cmds
-						cmds = cmds[:0]
-						return gotCmds, nil
-					}).Times(len(expect))
+				if n := len(expect); n > 0 {
+					pipe.EXPECT().Exec(ctx).RunAndReturn(
+						func(ctx context.Context) ([]redis.Cmder, error) {
+							got = append(got, len(cmds))
+							gotCmds := cmds
+							cmds = cmds[:0]
+							return gotCmds, nil
+						}).Times(n)
+				}
 
 				tt.cacheOp(t, redisCache, nKeys)
 				assert.Equal(t, expect, got)
@@ -687,8 +698,8 @@ func TestRedisCache_respectRefreshTTL(t *testing.T) {
 			name: "Get without refreshTTL",
 			expect: func(redisCache *RedisCache, rdb *mocks.MockCmdable) ([]byte, error) {
 				rdb.EXPECT().Get(ctx, testKey).Return(strResult)
-				bytesIter, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey}))
-				return bytesFromIter(bytesIter), err
+				return firstBytes(redisCache.Get(
+					ctx, 1, slices.Values([]string{testKey})))
 			},
 		},
 		{
@@ -696,8 +707,8 @@ func TestRedisCache_respectRefreshTTL(t *testing.T) {
 			expect: func(redisCache *RedisCache, rdb *mocks.MockCmdable) ([]byte, error) {
 				redisCache.WithGetRefreshTTL(ttl)
 				rdb.EXPECT().GetEx(ctx, testKey, ttl).Return(strResult)
-				bytesIter, err := redisCache.Get(MakeGetIter3(ctx, []string{testKey}))
-				return bytesFromIter(bytesIter), err
+				return firstBytes(redisCache.Get(
+					ctx, 1, slices.Values([]string{testKey})))
 			},
 		},
 	}
@@ -713,6 +724,13 @@ func TestRedisCache_respectRefreshTTL(t *testing.T) {
 	}
 }
 
+func firstBytes(seq iter.Seq2[[]byte, error]) ([]byte, error) {
+	for b, err := range seq {
+		return b, err
+	}
+	return nil, nil
+}
+
 func TestRedisCache_Set_skipEmptyItems(t *testing.T) {
 	ctx := context.Background()
 	foobar := []byte("foobar")
@@ -726,11 +744,9 @@ func TestRedisCache_Set_skipEmptyItems(t *testing.T) {
 			cmds = append(cmds, cmd)
 			return cmd
 		}).Times(3)
-	pipe.EXPECT().Len().Return(len(cmds))
+	pipe.EXPECT().Len().RunAndReturn(func() int { return len(cmds) })
 	pipe.EXPECT().Exec(ctx).RunAndReturn(
-		func(ctx context.Context) ([]redis.Cmder, error) {
-			return cmds, nil
-		})
+		func(ctx context.Context) ([]redis.Cmder, error) { return cmds, nil })
 
 	rdb := mocks.NewMockCmdable(t)
 	rdb.EXPECT().Pipeline().Return(pipe)
@@ -755,9 +771,11 @@ func BenchmarkRedisCache_Get(b *testing.B) {
 	b.SetParallelism(64)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, err := redisCache.Get(MakeGetIter3(ctx, allKeys))
-			if err != nil {
-				b.Fatal(err)
+			bytesIter := redisCache.Get(ctx, len(allKeys), slices.Values(allKeys))
+			for _, err := range bytesIter {
+				if err != nil {
+					b.Fatal(err)
+				}
 			}
 		}
 	})

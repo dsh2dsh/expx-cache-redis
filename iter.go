@@ -13,9 +13,3 @@ func MakeSetIter3(
 			return keys[itemIdx], blobs[itemIdx], times[itemIdx]
 		}
 }
-
-func MakeGetIter3(
-	ctx context.Context, keys []string,
-) (context.Context, int, func(itemIdx int) string) {
-	return ctx, len(keys), func(itemIdx int) string { return keys[itemIdx] }
-}
