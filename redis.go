@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -44,9 +45,8 @@ func (self *RedisCache) WithGetRefreshTTL(ttl time.Duration) *RedisCache {
 }
 
 func (self *RedisCache) Del(ctx context.Context, keys []string) error {
-	for low := 0; low < len(keys); low += self.batchSize {
-		high := min(len(keys), low+self.batchSize)
-		if err := self.rdb.Del(ctx, keys[low:high]...).Err(); err != nil {
+	for batch := range slices.Chunk(keys, self.batchSize) {
+		if err := self.rdb.Del(ctx, batch...).Err(); err != nil {
 			return fmt.Errorf("redis del: %w", err)
 		}
 	}
