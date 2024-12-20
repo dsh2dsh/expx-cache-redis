@@ -14,9 +14,10 @@ func Example() {
 	redisCache, _ := redis.MustNew()
 	ctx := context.Background()
 
-	err := redisCache.Set(redis.MakeSetIter3(ctx, []string{"key1", "key2"},
-		[][]byte{[]byte("value1"), []byte("value2")},
-		[]time.Duration{time.Minute, 2 * time.Minute}))
+	err := redisCache.Set(ctx, 2, slices.Values([]redis.Item{
+		redis.NewItem("key1", []byte("value1"), time.Minute),
+		redis.NewItem("key2", []byte("value2"), 2*time.Minute),
+	}))
 	if err != nil {
 		log.Fatal(err)
 	}

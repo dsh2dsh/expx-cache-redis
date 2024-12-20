@@ -155,19 +155,18 @@ func keyNotFound(err error) bool {
 
 // --------------------------------------------------
 
-func (self *RedisCache) Set(
-	ctx context.Context, maxItems int,
-	iter func(itemIdx int) (key string, b []byte, ttl time.Duration),
+func (self *RedisCache) Set(ctx context.Context, maxItems int,
+	items iter.Seq[Item],
 ) error {
 	if maxItems == 1 {
-		key, b, ttl := iter(0)
-		return singleSet(ctx, self.rdb, key, b, ttl)
+		for item := range items {
+			return singleSet(ctx, self.rdb, &item)
+		}
 	}
 
 	pipe := self.rdb.Pipeline()
-	for i := 0; i < maxItems; i++ {
-		key, b, ttl := iter(i)
-		if err := singleSet(ctx, pipe, key, b, ttl); err != nil {
+	for item := range items {
+		if err := singleSet(ctx, pipe, &item); err != nil {
 			return err
 		} else if pipe.Len() < self.batchSize {
 			continue
@@ -183,13 +182,13 @@ func (self *RedisCache) Set(
 	return self.msetPipeExec(ctx, pipe)
 }
 
-func singleSet(ctx context.Context, pipe redis.Cmdable, key string, b []byte,
-	ttl time.Duration,
+func singleSet(ctx context.Context, pipe redis.Cmdable, item *Item,
 ) error {
-	if len(b) == 0 {
+	if len(item.value) == 0 {
 		return nil
 	}
-	if err := pipe.Set(ctx, key, b, ttl).Err(); err != nil {
+	err := pipe.Set(ctx, item.key, item.value, item.ttl).Err()
+	if err != nil {
 		return fmt.Errorf("pipelined set: %w", err)
 	}
 	return nil
