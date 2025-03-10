@@ -18,7 +18,7 @@ func TestRedisCache_LockGet_errors(t *testing.T) {
 	const keySet = "key1"
 	const keyGet = "key2"
 	const bar = "bar"
-	ctx := context.Background()
+	ctx := t.Context()
 	ttl := time.Minute
 	wantErr := errors.New("test error")
 
@@ -103,7 +103,7 @@ func (self *RedisCacheTestSuite) TestExpire() {
 }
 
 func TestExpire_error(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ttl := time.Minute
 	wantErr := errors.New("test error")
 
@@ -138,7 +138,7 @@ func (self *RedisCacheTestSuite) TestUnlock() {
 }
 
 func TestUnlock_error(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	wantErr := errors.New("test error")
 
 	rdb := mocks.NewMockCmdable(t)

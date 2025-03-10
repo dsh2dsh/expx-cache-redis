@@ -72,7 +72,7 @@ func TestRedisCacheSuite(t *testing.T) {
 	if rdb == nil {
 		t.Skipf("skip %q, because no Redis connection", t.Name())
 	} else {
-		ctx := context.Background()
+		ctx := t.Context()
 		require.NoError(t, rdb.FlushDB(ctx).Err())
 		t.Cleanup(func() { require.NoError(t, rdb.Close()) })
 	}
@@ -233,7 +233,7 @@ func (self *RedisCacheTestSuite) setKey(r *RedisCache, key string, b []byte,
 }
 
 func TestRedisCache_errors(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ttl := time.Minute
 	ttls := []time.Duration{ttl, ttl, ttl}
 	wantErr := errors.New("expected error")
@@ -537,7 +537,7 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 
 	blob := []byte("foobar")
 	ttl := time.Minute
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		name     string
@@ -592,7 +592,7 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 		},
 	}
 
-	for i := 0; i < len(keys); i++ {
+	for i := range len(keys) {
 		keys[i] = fmt.Sprintf("key-%00d", i)
 		blobs[i] = blob
 		times[i] = ttl
@@ -613,7 +613,7 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 
 				var expect []int
 				nExec := nKeys / redisCache.batchSize
-				for i := 0; i < nExec; i++ {
+				for range nExec {
 					expect = append(expect, redisCache.batchSize)
 				}
 				if n := nKeys % redisCache.batchSize; n > 0 {
@@ -652,10 +652,10 @@ func TestRedisCache_Del_WithBatchSize(t *testing.T) {
 	maxKeys := 8
 
 	keys := make([]string, maxKeys)
-	for i := 0; i < len(keys); i++ {
+	for i := range len(keys) {
 		keys[i] = fmt.Sprintf("key-%00d", i)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for nKeys := 0; nKeys <= len(keys); nKeys++ {
 		t.Run(fmt.Sprintf("with %d keys", nKeys), func(t *testing.T) {
@@ -666,7 +666,7 @@ func TestRedisCache_Del_WithBatchSize(t *testing.T) {
 
 			var wantKeys [][]string
 			nDel := nKeys / redisCache.batchSize
-			for i := 0; i < nDel; i++ {
+			for i := range nDel {
 				low := i * redisCache.batchSize
 				high := low + redisCache.batchSize
 				wantKeys = append(wantKeys, keys[low:high])
@@ -704,7 +704,7 @@ func TestRedisCache_WithGetRefreshTTL(t *testing.T) {
 }
 
 func TestRedisCache_respectRefreshTTL(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ttl := time.Minute
 	strResult := redis.NewStringResult("", nil)
 
@@ -750,7 +750,7 @@ func firstBytes(seq iter.Seq2[[]byte, error]) ([]byte, error) {
 }
 
 func TestRedisCache_Set_skipEmptyItems(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	foobar := []byte("foobar")
 	ttl := time.Minute
 
@@ -781,7 +781,7 @@ func TestRedisCache_Set_skipEmptyItems(t *testing.T) {
 
 func BenchmarkRedisCache_Get(b *testing.B) {
 	redisCache, rdb := MustNew()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	allKeys := []string{"key1"}
 
@@ -803,7 +803,7 @@ func BenchmarkRedisCache_Get(b *testing.B) {
 
 func BenchmarkRedisCache_Set(b *testing.B) {
 	redisCache, rdb := MustNew()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.SetParallelism(64)
 	b.RunParallel(func(pb *testing.PB) {
