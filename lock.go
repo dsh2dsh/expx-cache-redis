@@ -26,19 +26,19 @@ func (self *RedisCache) LockGet(ctx context.Context, keySet, value string,
 	} else if ok, b, err = cmdBoolBytes(cmds); err != nil {
 		err = fmt.Errorf(errMsg, keySet, value, keyGet, err)
 	}
-	return
+	return ok, b, err
 }
 
 func cmdBoolBytes(cmds []redis.Cmder) (ok bool, b []byte, err error) {
 	if len(cmds) < 2 {
 		err = fmt.Errorf("unexpected length of cmds: %v", len(cmds))
-		return
+		return ok, b, err
 	} else if ok, err = cmdBool(cmds[0]); err != nil {
-		return
+		return ok, b, err
 	} else if b, err = cmdBytes(cmds[1]); err != nil {
-		return
+		return ok, b, err
 	}
-	return
+	return ok, b, err
 }
 
 func cmdBool(cmd redis.Cmder) (bool, error) {
