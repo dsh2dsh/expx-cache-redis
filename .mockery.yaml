@@ -1,0 +1,14 @@
+dir: "internal/mocks"
+filename: "mock_{{.InterfaceName}}.go"
+pkgname: "mocks"
+template: "testify"
+packages:
+  "github.com/dsh2dsh/expx-cache-redis":
+    interfaces:
+      "Cmdable":
+        config:
+          template-data:
+            unroll-variadic: false
+  "github.com/redis/go-redis/v9":
+    interfaces:
+      "Pipeliner":

@@ -17,12 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
+	"github.com/dsh2dsh/expx-cache-redis/internal/mocks"
 )
 
 const (
 	rdbOffset      = 0
-	cacheNamespace = "expx-cache/redis-test:"
+	cacheNamespace = "expx-cache-redis/redis-test:"
 	keyLocked      = cacheNamespace + "lock:"
 	testKey        = cacheNamespace + "test-key"
 )
@@ -68,7 +68,7 @@ func NewRedisClient() (*redis.Client, error) {
 // --------------------------------------------------
 
 func TestRedisCacheSuite(t *testing.T) {
-	rdb := valueNoError[*redis.Client](t)(NewRedisClient())
+	rdb := mustValue[*redis.Client](t)(NewRedisClient())
 	if rdb == nil {
 		t.Skipf("skip %q, because no Redis connection", t.Name())
 	} else {
@@ -79,7 +79,7 @@ func TestRedisCacheSuite(t *testing.T) {
 	suite.Run(t, &RedisCacheTestSuite{rdb: rdb})
 }
 
-func valueNoError[V any](t *testing.T) func(val V, err error) V {
+func mustValue[V any](t *testing.T) func(val V, err error) V {
 	return func(val V, err error) V {
 		require.NoError(t, err)
 		return val
@@ -93,7 +93,7 @@ type RedisCacheTestSuite struct {
 }
 
 func (self *RedisCacheTestSuite) TearDownTest() {
-	self.Require().NoError(self.rdb.FlushDB(context.Background()).Err())
+	self.Require().NoError(self.rdb.FlushDB(self.T().Context()).Err())
 }
 
 func (self *RedisCacheTestSuite) TestRedisCache() {
@@ -148,7 +148,7 @@ func (self *RedisCacheTestSuite) testNew(cacheOpts ...func(*RedisCache)) *RedisC
 func (self *RedisCacheTestSuite) testRedisCache(redisCache *RedisCache,
 	keys []string, values [][]byte, ttl []time.Duration,
 ) {
-	ctx := context.Background()
+	ctx := self.T().Context()
 
 	self.Require().NoError(redisCache.Set(itemsSeq(ctx, keys, values, ttl)))
 	iterBytes := redisCache.Get(ctx, len(keys), slices.Values(keys))
@@ -179,7 +179,7 @@ func (self *RedisCacheTestSuite) TestLockGet() {
 	const bar = "bar"
 	keySet := self.resolveKeyLock("tests-key")
 	self.T().Logf("keySet=%q", keySet)
-	ctx := context.Background()
+	ctx := self.T().Context()
 	ttl := time.Minute
 	foobar := []byte("foobar")
 
@@ -215,7 +215,7 @@ func (self *RedisCacheTestSuite) resolveKeyLock(key string) string {
 }
 
 func (self *RedisCacheTestSuite) getKey(r *RedisCache, key string) []byte {
-	iterBytes := r.Get(context.Background(), 1, slices.Values([]string{key}))
+	iterBytes := r.Get(self.T().Context(), 1, slices.Values([]string{key}))
 	for b, err := range iterBytes {
 		self.Require().NoError(err)
 		return b
@@ -227,7 +227,7 @@ func (self *RedisCacheTestSuite) getKey(r *RedisCache, key string) []byte {
 func (self *RedisCacheTestSuite) setKey(r *RedisCache, key string, b []byte,
 	ttl time.Duration,
 ) {
-	ctx := context.Background()
+	ctx := self.T().Context()
 	self.Require().NoError(r.Set(ctx, 1, slices.Values([]Item{
 		NewItem(key, b, ttl),
 	})))
@@ -737,7 +737,7 @@ func TestRedisCache_respectRefreshTTL(t *testing.T) {
 			rdb := mocks.NewMockCmdable(t)
 			redisCache := New(rdb)
 			require.NotNil(t, redisCache)
-			b := valueNoError[[]byte](t)(tt.expect(redisCache, rdb))
+			b := mustValue[[]byte](t)(tt.expect(redisCache, rdb))
 			assert.Nil(t, b)
 		})
 	}

@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
+	"github.com/dsh2dsh/expx-cache-redis/internal/mocks"
 )
 
 func (self *RedisCacheTestSuite) TestListen() {

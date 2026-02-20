@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	mocks "github.com/dsh2dsh/expx-cache/internal/mocks/redis"
+	"github.com/dsh2dsh/expx-cache-redis/internal/mocks"
 )
 
 func TestRedisCache_LockGet_errors(t *testing.T) {
