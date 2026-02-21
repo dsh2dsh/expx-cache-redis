@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRedisCache_LockGet_errors(t *testing.T) {
+func TestCache_LockGet_errors(t *testing.T) {
 	const keySet = "key1"
 	const keyGet = "key2"
 	const bar = "bar"
@@ -108,7 +108,7 @@ func TestRedisCache_LockGet_errors(t *testing.T) {
 	assert.Len(t, rdb.PipelinedCalls(), 1)
 }
 
-func (self *RedisCacheTestSuite) TestExpire() {
+func (self *CacheTestSuite) TestExpire() {
 	ctx := self.T().Context()
 	keyLock := self.resolveKeyLock("test-key")
 	ttl := time.Minute
@@ -155,7 +155,7 @@ func TestExpire_error(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func (self *RedisCacheTestSuite) TestUnlock() {
+func (self *CacheTestSuite) TestUnlock() {
 	const foobar = "foobar"
 	ctx := self.T().Context()
 	keyLock := self.resolveKeyLock("test-key")

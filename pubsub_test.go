@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func (self *RedisCacheTestSuite) TestListen() {
+func (self *CacheTestSuite) TestListen() {
 	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(5*time.Second))
 	defer cancel()
@@ -34,7 +34,7 @@ func (self *RedisCacheTestSuite) TestListen() {
 	self.Equal(foobar, value)
 }
 
-func (self *RedisCacheTestSuite) TestListen_readyCallbackErr() {
+func (self *CacheTestSuite) TestListen_readyCallbackErr() {
 	r := self.testNew()
 	keyLock := self.resolveKeyLock("test-key")
 	testErr := errors.New("test error")
@@ -50,7 +50,7 @@ func (self *RedisCacheTestSuite) TestListen_readyCallbackErr() {
 	self.Empty(value)
 }
 
-func (self *RedisCacheTestSuite) TestListen_cancel() {
+func (self *CacheTestSuite) TestListen_cancel() {
 	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
@@ -74,7 +74,7 @@ func (self *RedisCacheTestSuite) TestListen_cancel() {
 	self.Empty(value)
 }
 
-func (self *RedisCacheTestSuite) TestListen_subscribeError() {
+func (self *CacheTestSuite) TestListen_subscribeError() {
 	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
@@ -87,20 +87,20 @@ func (self *RedisCacheTestSuite) TestListen_subscribeError() {
 		},
 	}
 
-	r := self.testNew(func(redisCache *RedisCache) { redisCache.rdb = rdb })
+	r := self.testNew(func(cache *Cache) { cache.rdb = rdb })
 	keyLock := self.resolveKeyLock("test-key")
 	value, err := r.Listen(ctx, keyLock)
 	self.Require().ErrorContains(err, "subscribe channel")
 	self.Empty(value)
 }
 
-func (self *RedisCacheTestSuite) TestListen_subscriptionError() {
+func (self *CacheTestSuite) TestListen_subscriptionError() {
 	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
 
-	r := self.testNew(func(redisCache *RedisCache) {
-		redisCache.subscribed = func(pubsub *redis.PubSub) { pubsub.Close() }
+	r := self.testNew(func(cache *Cache) {
+		cache.subscribed = func(pubsub *redis.PubSub) { pubsub.Close() }
 	})
 
 	keyLock := self.resolveKeyLock("test-key")
@@ -109,7 +109,7 @@ func (self *RedisCacheTestSuite) TestListen_subscriptionError() {
 	self.Empty(value)
 }
 
-func (self *RedisCacheTestSuite) TestListen_messageError() {
+func (self *CacheTestSuite) TestListen_messageError() {
 	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
@@ -126,7 +126,7 @@ func (self *RedisCacheTestSuite) TestListen_messageError() {
 		},
 	}
 
-	r := self.testNew(func(redisCache *RedisCache) { redisCache.rdb = rdb })
+	r := self.testNew(func(cache *Cache) { cache.rdb = rdb })
 	keyLock := self.resolveKeyLock("test-key")
 	value, err := r.Listen(ctx, keyLock, func() error {
 		ch <- struct{}{}

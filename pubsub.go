@@ -7,7 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func (self *RedisCache) Listen(ctx context.Context, key string,
+func (self *Cache) Listen(ctx context.Context, key string,
 	ready ...func() error,
 ) (string, error) {
 	pubsub := self.rdb.Subscribe(ctx)
@@ -43,7 +43,7 @@ func (self *RedisCache) Listen(ctx context.Context, key string,
 	return m.Value, m.Err
 }
 
-func (self *RedisCache) subscribe(ctx context.Context, pubsub *redis.PubSub,
+func (self *Cache) subscribe(ctx context.Context, pubsub *redis.PubSub,
 	key string, ready ...func() error,
 ) error {
 	if err := pubsub.Subscribe(ctx, key); err != nil {
@@ -64,7 +64,7 @@ func (self *RedisCache) subscribe(ctx context.Context, pubsub *redis.PubSub,
 	return nil
 }
 
-func (self *RedisCache) receiveMessage(ctx context.Context, pubsub *redis.PubSub,
+func (self *Cache) receiveMessage(ctx context.Context, pubsub *redis.PubSub,
 ) (string, error) {
 	m, err := pubsub.ReceiveMessage(ctx)
 	const errMsg = "pubsub message: %w"

@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func (self *RedisCache) LockGet(ctx context.Context, keySet, value string,
+func (self *Cache) LockGet(ctx context.Context, keySet, value string,
 	ttl time.Duration, keyGet string,
 ) (ok bool, b []byte, err error) {
 	cmds, err := self.rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
@@ -54,7 +54,7 @@ func cmdBool(cmd redis.Cmder) (bool, error) {
 
 // --------------------------------------------------
 
-func (self *RedisCache) Expire(ctx context.Context, key string, ttl time.Duration,
+func (self *Cache) Expire(ctx context.Context, key string, ttl time.Duration,
 ) (bool, error) {
 	ok, err := self.rdb.Expire(ctx, key, ttl).Result()
 	if err != nil {
@@ -63,7 +63,7 @@ func (self *RedisCache) Expire(ctx context.Context, key string, ttl time.Duratio
 	return ok, nil
 }
 
-func (self *RedisCache) Unlock(ctx context.Context, key, value string,
+func (self *Cache) Unlock(ctx context.Context, key, value string,
 ) (bool, error) {
 	n, err := unlockLua.Run(ctx, self.rdb, []string{key}, value).Int64()
 	if err != nil {
