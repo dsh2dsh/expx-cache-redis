@@ -6,12 +6,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-
-	"github.com/dsh2dsh/expx-cache-redis/internal/mocks"
 )
 
 func (self *RedisCacheTestSuite) TestListen() {
-	ctx, cancel := context.WithDeadline(context.Background(),
+	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(5*time.Second))
 	defer cancel()
 
@@ -41,7 +39,7 @@ func (self *RedisCacheTestSuite) TestListen_readyCallbackErr() {
 	keyLock := self.resolveKeyLock("test-key")
 	testErr := errors.New("test error")
 
-	ctx, cancel := context.WithDeadline(context.Background(),
+	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
 
@@ -53,7 +51,7 @@ func (self *RedisCacheTestSuite) TestListen_readyCallbackErr() {
 }
 
 func (self *RedisCacheTestSuite) TestListen_cancel() {
-	ctx, cancel := context.WithDeadline(context.Background(),
+	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
 
@@ -77,17 +75,17 @@ func (self *RedisCacheTestSuite) TestListen_cancel() {
 }
 
 func (self *RedisCacheTestSuite) TestListen_subscribeError() {
-	ctx, cancel := context.WithDeadline(context.Background(),
+	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
 
-	rdb := mocks.NewMockCmdable(self.T())
-	rdb.EXPECT().Subscribe(ctx).RunAndReturn(
-		func(ctx context.Context, keys ...string) *redis.PubSub {
-			pubsub := self.rdb.Subscribe(ctx, keys...)
+	rdb := &MoqCmdable{
+		SubscribeFunc: func(ctx context.Context, channels ...string) *redis.PubSub {
+			pubsub := self.rdb.Subscribe(ctx, channels...)
 			pubsub.Close()
 			return pubsub
-		})
+		},
+	}
 
 	r := self.testNew(func(redisCache *RedisCache) { redisCache.rdb = rdb })
 	keyLock := self.resolveKeyLock("test-key")
@@ -97,7 +95,7 @@ func (self *RedisCacheTestSuite) TestListen_subscribeError() {
 }
 
 func (self *RedisCacheTestSuite) TestListen_subscriptionError() {
-	ctx, cancel := context.WithDeadline(context.Background(),
+	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
 
@@ -112,21 +110,21 @@ func (self *RedisCacheTestSuite) TestListen_subscriptionError() {
 }
 
 func (self *RedisCacheTestSuite) TestListen_messageError() {
-	ctx, cancel := context.WithDeadline(context.Background(),
+	ctx, cancel := context.WithDeadline(self.T().Context(),
 		time.Now().Add(time.Second))
 	defer cancel()
 
-	rdb := mocks.NewMockCmdable(self.T())
 	ch := make(chan struct{})
-	rdb.EXPECT().Subscribe(ctx).RunAndReturn(
-		func(ctx context.Context, keys ...string) *redis.PubSub {
-			pubsub := self.rdb.Subscribe(ctx, keys...)
+	rdb := &MoqCmdable{
+		SubscribeFunc: func(ctx context.Context, channels ...string) *redis.PubSub {
+			pubsub := self.rdb.Subscribe(ctx, channels...)
 			go func() {
 				<-ch
 				pubsub.Close()
 			}()
 			return pubsub
-		})
+		},
+	}
 
 	r := self.testNew(func(redisCache *RedisCache) { redisCache.rdb = rdb })
 	keyLock := self.resolveKeyLock("test-key")

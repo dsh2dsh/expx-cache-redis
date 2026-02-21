@@ -13,11 +13,8 @@ import (
 	dotenv "github.com/dsh2dsh/expx-dotenv"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-
-	"github.com/dsh2dsh/expx-cache-redis/internal/mocks"
 )
 
 const (
@@ -242,15 +239,17 @@ func TestRedisCache_errors(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		configure func(t *testing.T, rdb *mocks.MockCmdable)
+		configure func(t *testing.T, rdb *MoqCmdable)
 		do        func(t *testing.T, redisCache *RedisCache) error
 		assertErr func(t *testing.T, err error)
+		assertMoq func(t *testing.T, rdb *MoqCmdable)
 	}{
 		{
 			name: "Del",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				rdb.EXPECT().Del(ctx, []string{testKey}).
-					Return(redis.NewIntResult(0, wantErr))
+			configure: func(t *testing.T, rdb *MoqCmdable) {
+				rdb.DelFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					return redis.NewIntResult(0, wantErr)
+				}
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return redisCache.Del(ctx, []string{testKey})
@@ -258,8 +257,10 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get error from getter 1",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				rdb.EXPECT().Get(ctx, testKey).Return(redis.NewStringResult("", wantErr))
+			configure: func(t *testing.T, rdb *MoqCmdable) {
+				rdb.GetFunc = func(ctx context.Context, key string) *redis.StringCmd {
+					return redis.NewStringResult("", wantErr)
+				}
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(
@@ -268,11 +269,13 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get error from getter 2",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				pipe.EXPECT().Get(ctx, testKey).Return(
-					redis.NewStringResult("", wantErr))
-				rdb.EXPECT().Pipeline().Return(pipe)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
+				pipe := &MoqPipeliner{
+					GetFunc: func(ctx context.Context, key string) *redis.StringCmd {
+						return redis.NewStringResult("", wantErr)
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(ctx, 3, slices.Values(
@@ -281,23 +284,23 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get error from batchSize",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				rdb.EXPECT().Pipeline().Return(pipe)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
 				expectedKeys := []string{testKey, "key2", "key3"}
 				var pipeLen int
-				for _, expectedKey := range expectedKeys {
-					pipe.EXPECT().Get(ctx, expectedKey).RunAndReturn(
-						func(ctx context.Context, key string) *redis.StringCmd {
-							pipeLen++
-							return strResult
-						})
-				}
-				pipe.EXPECT().Len().RunAndReturn(func() int { return pipeLen })
-				pipe.EXPECT().Exec(ctx).RunAndReturn(
-					func(ctx context.Context) ([]redis.Cmder, error) {
+				pipe := &MoqPipeliner{
+					GetFunc: func(ctx context.Context, key string) *redis.StringCmd {
+						assert.Equal(t, expectedKeys[pipeLen], key)
+						pipeLen++
+						return strResult
+					},
+
+					LenFunc: func() int { return pipeLen },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
 						return nil, wantErr
-					})
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(ctx, 3, slices.Values(
@@ -306,18 +309,23 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get error from Exec",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				rdb.EXPECT().Pipeline().Return(pipe)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
 				expectedKeys := []string{testKey, "key2"}
-				for _, expectedKey := range expectedKeys {
-					pipe.EXPECT().Get(ctx, expectedKey).Return(strResult)
-				}
-				pipe.EXPECT().Len().Return(len(expectedKeys))
-				pipe.EXPECT().Exec(ctx).RunAndReturn(
-					func(ctx context.Context) ([]redis.Cmder, error) {
+				var pipeLen int
+				pipe := &MoqPipeliner{
+					GetFunc: func(ctx context.Context, key string) *redis.StringCmd {
+						assert.Equal(t, expectedKeys[pipeLen], key)
+						pipeLen++
+						return strResult
+					},
+
+					LenFunc: func() int { return pipeLen },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
 						return nil, wantErr
-					})
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
@@ -326,19 +334,24 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get error from StringCmd",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				rdb.EXPECT().Pipeline().Return(pipe)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
 				expectedKeys := []string{testKey, "key2"}
-				for _, expectedKey := range expectedKeys {
-					pipe.EXPECT().Get(ctx, expectedKey).Return(strResult)
-				}
-				pipe.EXPECT().Len().Return(len(expectedKeys))
-				pipe.EXPECT().Exec(ctx).RunAndReturn(
-					func(ctx context.Context) ([]redis.Cmder, error) {
+				var pipeLen int
+				pipe := &MoqPipeliner{
+					GetFunc: func(ctx context.Context, key string) *redis.StringCmd {
+						assert.Equal(t, expectedKeys[pipeLen], key)
+						pipeLen++
+						return strResult
+					},
+
+					LenFunc: func() int { return pipeLen },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
 						cmds := []redis.Cmder{redis.NewStringResult("", wantErr)}
 						return cmds, nil
-					})
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
@@ -347,19 +360,24 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get error from BoolCmd",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				rdb.EXPECT().Pipeline().Return(pipe)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
 				expectedKeys := []string{testKey, "key2"}
-				for _, expectedKey := range expectedKeys {
-					pipe.EXPECT().Get(ctx, expectedKey).Return(strResult)
-				}
-				pipe.EXPECT().Len().Return(len(expectedKeys))
-				pipe.EXPECT().Exec(ctx).RunAndReturn(
-					func(ctx context.Context) ([]redis.Cmder, error) {
+				var pipeLen int
+				pipe := &MoqPipeliner{
+					GetFunc: func(ctx context.Context, key string) *redis.StringCmd {
+						assert.Equal(t, expectedKeys[pipeLen], key)
+						pipeLen++
+						return strResult
+					},
+
+					LenFunc: func() int { return pipeLen },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
 						cmds := []redis.Cmder{redis.NewBoolResult(false, wantErr)}
 						return cmds, wantErr
-					})
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
@@ -368,19 +386,24 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get unexpected type",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				rdb.EXPECT().Pipeline().Return(pipe)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
 				expectedKeys := []string{testKey, "key2"}
-				for _, expectedKey := range expectedKeys {
-					pipe.EXPECT().Get(ctx, expectedKey).Return(strResult)
-				}
-				pipe.EXPECT().Len().Return(len(expectedKeys))
-				pipe.EXPECT().Exec(ctx).RunAndReturn(
-					func(ctx context.Context) ([]redis.Cmder, error) {
+				var pipeLen int
+				pipe := &MoqPipeliner{
+					GetFunc: func(ctx context.Context, key string) *redis.StringCmd {
+						assert.Equal(t, expectedKeys[pipeLen], key)
+						pipeLen++
+						return strResult
+					},
+
+					LenFunc: func() int { return pipeLen },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
 						cmds := []redis.Cmder{redis.NewBoolResult(false, nil)}
 						return cmds, nil
-					})
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
@@ -392,17 +415,22 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Get with Nil",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				pipe.EXPECT().Get(ctx, mock.Anything).Return(redis.NewStringResult("", nil))
-				pipe.EXPECT().Len().Return(2)
-				pipe.EXPECT().Exec(ctx).Return(
-					[]redis.Cmder{
-						redis.NewStringResult("", nil),
-						redis.NewStringResult("", redis.Nil),
+			configure: func(t *testing.T, rdb *MoqCmdable) {
+				pipe := &MoqPipeliner{
+					GetFunc: func(ctx context.Context, key string) *redis.StringCmd {
+						return redis.NewStringResult("", nil)
 					},
-					nil)
-				rdb.EXPECT().Pipeline().Return(pipe)
+
+					LenFunc: func() int { return 2 },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
+						return []redis.Cmder{
+							redis.NewStringResult("", nil),
+							redis.NewStringResult("", redis.Nil),
+						}, nil
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				return iterBytesErr(redisCache.Get(ctx, 2, slices.Values(
@@ -414,9 +442,14 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Set error from SET 1",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				rdb.EXPECT().Set(ctx, testKey, mock.Anything, ttl).Return(
-					redis.NewStatusResult("", wantErr))
+			configure: func(t *testing.T, rdb *MoqCmdable) {
+				rdb.SetFunc = func(ctx context.Context, key string, value any,
+					expiration time.Duration,
+				) *redis.StatusCmd {
+					assert.Equal(t, testKey, key)
+					assert.Equal(t, ttl, expiration)
+					return redis.NewStatusResult("", wantErr)
+				}
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				err := redisCache.Set(ctx, 1, slices.Values([]Item{
@@ -427,14 +460,22 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Set error from SET 2",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				rdb.EXPECT().Pipeline().Return(pipe)
-				pipe.EXPECT().Set(ctx, testKey, mock.Anything, ttl).Return(
-					redis.NewStatusResult("", nil))
-				pipe.EXPECT().Len().Return(1)
-				pipe.EXPECT().Set(ctx, "key2", mock.Anything, ttl).Return(
-					redis.NewStatusResult("", wantErr))
+			configure: func(t *testing.T, rdb *MoqCmdable) {
+				pipe := &MoqPipeliner{
+					SetFunc: func(ctx context.Context, key string, value any,
+						expiration time.Duration,
+					) *redis.StatusCmd {
+						assert.Equal(t, ttl, expiration)
+						if key == testKey {
+							return redis.NewStatusResult("", nil)
+						}
+						assert.Equal(t, "key2", key)
+						return redis.NewStatusResult("", wantErr)
+					},
+
+					LenFunc: func() int { return 1 },
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				err := redisCache.Set(itemsSeq(ctx,
@@ -446,22 +487,26 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Set error from batchSize",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
 				wantKeys := []string{testKey, "key2", "key3"}
 				var pipeLen int
-				for _, wantKey := range wantKeys {
-					pipe.EXPECT().Set(ctx, wantKey, mock.Anything, ttl).RunAndReturn(
-						func(
-							ctx context.Context, key string, v any, ttl time.Duration,
-						) *redis.StatusCmd {
-							pipeLen++
-							return redis.NewStatusResult("", nil)
-						})
+				pipe := &MoqPipeliner{
+					SetFunc: func(ctx context.Context, key string, value any,
+						expiration time.Duration,
+					) *redis.StatusCmd {
+						assert.Equal(t, wantKeys[pipeLen], key)
+						assert.Equal(t, ttl, expiration)
+						pipeLen++
+						return redis.NewStatusResult("", nil)
+					},
+
+					LenFunc: func() int { return pipeLen },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
+						return nil, wantErr
+					},
 				}
-				pipe.EXPECT().Len().RunAndReturn(func() int { return pipeLen })
-				pipe.EXPECT().Exec(ctx).Return(nil, wantErr)
-				rdb.EXPECT().Pipeline().Return(pipe)
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				err := redisCache.Set(itemsSeq(ctx,
@@ -473,15 +518,23 @@ func TestRedisCache_errors(t *testing.T) {
 		},
 		{
 			name: "Set error from Exec",
-			configure: func(t *testing.T, rdb *mocks.MockCmdable) {
-				pipe := mocks.NewMockPipeliner(t)
-				pipe.EXPECT().Set(ctx, testKey, mock.Anything, ttl).Return(
-					redis.NewStatusResult("", nil))
-				pipe.EXPECT().Set(ctx, testKey, mock.Anything, ttl).Return(
-					redis.NewStatusResult("", nil))
-				pipe.EXPECT().Len().Return(2)
-				pipe.EXPECT().Exec(ctx).Return(nil, wantErr)
-				rdb.EXPECT().Pipeline().Return(pipe)
+			configure: func(t *testing.T, rdb *MoqCmdable) {
+				pipe := &MoqPipeliner{
+					SetFunc: func(ctx context.Context, key string, value any,
+						expiration time.Duration,
+					) *redis.StatusCmd {
+						assert.Equal(t, testKey, key)
+						assert.Equal(t, ttl, expiration)
+						return redis.NewStatusResult("", nil)
+					},
+
+					LenFunc: func() int { return 2 },
+
+					ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
+						return nil, wantErr
+					},
+				}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, redisCache *RedisCache) error {
 				err := redisCache.Set(itemsSeq(ctx,
@@ -490,19 +543,27 @@ func TestRedisCache_errors(t *testing.T) {
 					ttls))
 				return err
 			},
+			assertMoq: func(t *testing.T, rdb *MoqCmdable) {
+				pipe := rdb.Pipeline().(*MoqPipeliner)
+				assert.Len(t, pipe.SetCalls(), 2)
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rdb := mocks.NewMockCmdable(t)
+			rdb := &MoqCmdable{}
 			redisCache := New(rdb).WithBatchSize(3)
 			tt.configure(t, rdb)
 			err := tt.do(t, redisCache)
 			if tt.assertErr != nil {
 				tt.assertErr(t, err)
-			} else {
-				require.ErrorIs(t, err, wantErr)
+				return
+			}
+			require.ErrorIs(t, err, wantErr)
+
+			if tt.assertMoq != nil {
+				tt.assertMoq(t, rdb)
 			}
 		})
 	}
@@ -542,23 +603,23 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		singleOp func(rdb *mocks.MockCmdable)
-		pipeOp   func(pipe *mocks.MockPipeliner, fn func(cmd redis.Cmder))
+		singleOp func(rdb *MoqCmdable)
+		pipeOp   func(pipe *MoqPipeliner, fn func(cmd redis.Cmder))
 		cacheOp  func(t *testing.T, redisCache *RedisCache, nKeys int)
 	}{
 		{
 			name: "Get",
-			singleOp: func(rdb *mocks.MockCmdable) {
-				rdb.EXPECT().Get(ctx, mock.Anything).Return(
-					redis.NewStringResult("", nil))
+			singleOp: func(rdb *MoqCmdable) {
+				rdb.GetFunc = func(ctx context.Context, key string) *redis.StringCmd {
+					return redis.NewStringResult("", nil)
+				}
 			},
-			pipeOp: func(pipe *mocks.MockPipeliner, fn func(cmd redis.Cmder)) {
-				pipe.EXPECT().Get(ctx, mock.Anything).RunAndReturn(
-					func(ctx context.Context, key string) *redis.StringCmd {
-						cmd := redis.NewStringResult("", nil)
-						fn(cmd)
-						return cmd
-					})
+			pipeOp: func(pipe *MoqPipeliner, fn func(cmd redis.Cmder)) {
+				pipe.GetFunc = func(ctx context.Context, key string) *redis.StringCmd {
+					cmd := redis.NewStringResult("", nil)
+					fn(cmd)
+					return cmd
+				}
 			},
 			cacheOp: func(t *testing.T, redisCache *RedisCache, nKeys int) {
 				bytesIter := redisCache.Get(ctx, len(keys[:nKeys]),
@@ -571,20 +632,23 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 		},
 		{
 			name: "Set",
-			singleOp: func(rdb *mocks.MockCmdable) {
-				rdb.EXPECT().Set(ctx, mock.Anything, blob, ttl).Return(
-					redis.NewStatusResult("", nil))
+			singleOp: func(rdb *MoqCmdable) {
+				rdb.SetFunc = func(ctx context.Context, key string, value any,
+					expiration time.Duration,
+				) *redis.StatusCmd {
+					return redis.NewStatusResult("", nil)
+				}
 			},
-			pipeOp: func(pipe *mocks.MockPipeliner, fn func(cmd redis.Cmder)) {
-				pipe.EXPECT().Set(ctx, mock.Anything, blob, ttl).RunAndReturn(
-					func(
-						ctx context.Context, key string, v any, ttl time.Duration,
-					) *redis.StatusCmd {
-						cmd := redis.NewStatusResult("", nil)
-						fn(cmd)
-						return cmd
-					},
-				)
+			pipeOp: func(pipe *MoqPipeliner, fn func(cmd redis.Cmder)) {
+				pipe.SetFunc = func(ctx context.Context, key string, value any,
+					expiration time.Duration,
+				) *redis.StatusCmd {
+					assert.Equal(t, blob, value)
+					assert.Equal(t, ttl, expiration)
+					cmd := redis.NewStatusResult("", nil)
+					fn(cmd)
+					return cmd
+				}
 			},
 			cacheOp: func(t *testing.T, redisCache *RedisCache, nKeys int) {
 				require.NoError(t, redisCache.Set(itemsSeq(ctx,
@@ -602,7 +666,7 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 	for _, tt := range tests {
 		for nKeys := 0; nKeys <= len(keys); nKeys++ {
 			t.Run(fmt.Sprintf("%s with %d keys", tt.name, nKeys), func(t *testing.T) {
-				rdb := mocks.NewMockCmdable(t)
+				rdb := &MoqCmdable{}
 				redisCache := New(rdb).WithBatchSize(batchSize)
 				require.NotNil(t, redisCache)
 
@@ -621,28 +685,28 @@ func TestRedisCache_MGetSet_WithBatchSize(t *testing.T) {
 					expect = append(expect, n)
 				}
 
-				pipe := mocks.NewMockPipeliner(t)
-				rdb.EXPECT().Pipeline().Return(pipe)
+				pipe := &MoqPipeliner{}
+				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 
 				var cmds []redis.Cmder
 				if nKeys > 0 {
 					tt.pipeOp(pipe, func(cmd redis.Cmder) { cmds = append(cmds, cmd) })
 				}
-				pipe.EXPECT().Len().RunAndReturn(func() int { return len(cmds) })
+				pipe.LenFunc = func() int { return len(cmds) }
 
 				var got []int
 				if n := len(expect); n > 0 {
-					pipe.EXPECT().Exec(ctx).RunAndReturn(
-						func(ctx context.Context) ([]redis.Cmder, error) {
-							got = append(got, len(cmds))
-							gotCmds := cmds
-							cmds = cmds[:0]
-							return gotCmds, nil
-						}).Times(n)
+					pipe.ExecFunc = func(ctx context.Context) ([]redis.Cmder, error) {
+						got = append(got, len(cmds))
+						gotCmds := cmds
+						cmds = cmds[:0]
+						return gotCmds, nil
+					}
 				}
 
 				tt.cacheOp(t, redisCache, nKeys)
 				assert.Equal(t, expect, got)
+				assert.Len(t, pipe.ExecCalls(), len(expect))
 			})
 		}
 	}
@@ -660,7 +724,7 @@ func TestRedisCache_Del_WithBatchSize(t *testing.T) {
 
 	for nKeys := 0; nKeys <= len(keys); nKeys++ {
 		t.Run(fmt.Sprintf("with %d keys", nKeys), func(t *testing.T) {
-			rdb := mocks.NewMockCmdable(t)
+			rdb := &MoqCmdable{}
 			redisCache := New(rdb)
 			require.NotNil(t, redisCache)
 			redisCache.WithBatchSize(batchSize)
@@ -679,12 +743,9 @@ func TestRedisCache_Del_WithBatchSize(t *testing.T) {
 			}
 
 			var gotKeys [][]string
-			for i := range wantKeys {
-				rdb.EXPECT().Del(ctx, wantKeys[i]).RunAndReturn(
-					func(ctx context.Context, keys ...string) *redis.IntCmd {
-						gotKeys = append(gotKeys, keys)
-						return redis.NewIntResult(int64(len(keys)), nil)
-					})
+			rdb.DelFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+				gotKeys = append(gotKeys, keys)
+				return redis.NewIntResult(int64(len(keys)), nil)
 			}
 
 			require.NoError(t, redisCache.Del(ctx, keys[:nKeys]))
@@ -711,30 +772,43 @@ func TestRedisCache_respectRefreshTTL(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		expect func(redisCache *RedisCache, rdb *mocks.MockCmdable) ([]byte, error)
+		expect func(redisCache *RedisCache, rdb *MoqCmdable) ([]byte, error)
 	}{
 		{
 			name: "Get without refreshTTL",
-			expect: func(redisCache *RedisCache, rdb *mocks.MockCmdable) ([]byte, error) {
-				rdb.EXPECT().Get(ctx, testKey).Return(strResult)
-				return firstBytes(redisCache.Get(
-					ctx, 1, slices.Values([]string{testKey})))
+			expect: func(redisCache *RedisCache, rdb *MoqCmdable) ([]byte,
+				error,
+			) {
+				rdb.GetFunc = func(ctx context.Context, key string) *redis.StringCmd {
+					assert.Equal(t, testKey, key)
+					return strResult
+				}
+				return firstBytes(redisCache.Get(ctx, 1,
+					slices.Values([]string{testKey})))
 			},
 		},
 		{
 			name: "Get with refreshTTL",
-			expect: func(redisCache *RedisCache, rdb *mocks.MockCmdable) ([]byte, error) {
+			expect: func(redisCache *RedisCache, rdb *MoqCmdable) ([]byte,
+				error,
+			) {
 				redisCache.WithGetRefreshTTL(ttl)
-				rdb.EXPECT().GetEx(ctx, testKey, ttl).Return(strResult)
-				return firstBytes(redisCache.Get(
-					ctx, 1, slices.Values([]string{testKey})))
+				rdb.GetExFunc = func(ctx context.Context, key string,
+					expiration time.Duration,
+				) *redis.StringCmd {
+					assert.Equal(t, testKey, key)
+					assert.Equal(t, ttl, expiration)
+					return strResult
+				}
+				return firstBytes(redisCache.Get(ctx, 1,
+					slices.Values([]string{testKey})))
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rdb := mocks.NewMockCmdable(t)
+			rdb := &MoqCmdable{}
 			redisCache := New(rdb)
 			require.NotNil(t, redisCache)
 			b := mustValue[[]byte](t)(tt.expect(redisCache, rdb))
@@ -755,20 +829,26 @@ func TestRedisCache_Set_skipEmptyItems(t *testing.T) {
 	foobar := []byte("foobar")
 	ttl := time.Minute
 
-	pipe := mocks.NewMockPipeliner(t)
 	cmds := make([]redis.Cmder, 0, 1)
-	pipe.EXPECT().Set(ctx, testKey, foobar, mock.Anything).RunAndReturn(
-		func(context.Context, string, any, time.Duration) *redis.StatusCmd {
+	pipe := &MoqPipeliner{
+		SetFunc: func(ctx context.Context, key string, value any,
+			expiration time.Duration,
+		) *redis.StatusCmd {
 			cmd := redis.NewStatusResult("", nil)
 			cmds = append(cmds, cmd)
 			return cmd
-		}).Times(3)
-	pipe.EXPECT().Len().RunAndReturn(func() int { return len(cmds) })
-	pipe.EXPECT().Exec(ctx).RunAndReturn(
-		func(ctx context.Context) ([]redis.Cmder, error) { return cmds, nil })
+		},
 
-	rdb := mocks.NewMockCmdable(t)
-	rdb.EXPECT().Pipeline().Return(pipe)
+		LenFunc: func() int { return len(cmds) },
+
+		ExecFunc: func(ctx context.Context) ([]redis.Cmder, error) {
+			return cmds, nil
+		},
+	}
+
+	rdb := &MoqCmdable{
+		PipelineFunc: func() redis.Pipeliner { return pipe },
+	}
 
 	redisCache := New(rdb)
 	require.NotNil(t, redisCache)
@@ -776,6 +856,7 @@ func TestRedisCache_Set_skipEmptyItems(t *testing.T) {
 		[]string{testKey, testKey, testKey, testKey},
 		[][]byte{{}, foobar, foobar, foobar},
 		[]time.Duration{ttl, 0, -1, ttl})))
+	assert.Len(t, pipe.SetCalls(), 3)
 }
 
 // --------------------------------------------------

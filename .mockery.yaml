@@ -1,14 +1,13 @@
-dir: "internal/mocks"
-filename: "mock_{{.InterfaceName}}.go"
-pkgname: "mocks"
-template: "testify"
+dir: ""
+filename: "moq_{{.InterfaceName}}_test.go"
+structname: "Moq{{.InterfaceName}}"
+template: "matryer"
+template-data:
+  with-resets: true
 packages:
   "github.com/dsh2dsh/expx-cache-redis":
     interfaces:
       "Cmdable":
-        config:
-          template-data:
-            unroll-variadic: false
   "github.com/redis/go-redis/v9":
     interfaces:
       "Pipeliner":
