@@ -39,4 +39,4 @@ jobs:
       - name: "Test"
         env:
           "WITH_REDIS": "redis://localhost:6379"
-        run: "make test"
+        run: "go test ./..."
