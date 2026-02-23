@@ -7,22 +7,24 @@ import (
 	"slices"
 	"time"
 
-	redis "github.com/dsh2dsh/expx-cache-redis"
+	"github.com/dsh2dsh/expx-cache/model"
+
+	cacheRedis "github.com/dsh2dsh/expx-cache-redis"
 )
 
 func Example() {
-	cache, _ := redis.MustNew()
+	redisCache, _ := cacheRedis.MustNew()
 	ctx := context.Background()
 
-	err := cache.Set(ctx, 2, slices.Values([]redis.Item{
-		redis.NewItem("key1", []byte("value1"), time.Minute),
-		redis.NewItem("key2", []byte("value2"), 2*time.Minute),
+	err := redisCache.Set(ctx, 2, slices.Values([]model.RedisItem{
+		model.NewRedisItem("key1", []byte("value1"), time.Minute),
+		model.NewRedisItem("key2", []byte("value2"), 2*time.Minute),
 	}))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	iterBytes := cache.Get(ctx, 2, slices.Values([]string{"key1", "key2"}))
+	iterBytes := redisCache.Get(ctx, 2, slices.Values([]string{"key1", "key2"}))
 	for b, err := range iterBytes {
 		if err != nil {
 			log.Fatal(err)
@@ -30,7 +32,7 @@ func Example() {
 		fmt.Println(string(b))
 	}
 
-	err = cache.Del(ctx, []string{"key1", "key2"})
+	err = redisCache.Del(ctx, []string{"key1", "key2"})
 	if err != nil {
 		log.Fatal(err)
 	}

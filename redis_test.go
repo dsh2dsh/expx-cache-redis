@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v10"
+	"github.com/dsh2dsh/expx-cache/model"
 	dotenv "github.com/dsh2dsh/expx-dotenv"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -145,7 +146,7 @@ func (self *CacheTestSuite) testCache(cache *Cache, keys []string,
 ) {
 	ctx := self.T().Context()
 
-	self.Require().NoError(cache.Set(itemsSeq(ctx, keys, values, ttl)))
+	self.Require().NoError(cache.Set(itemSeq(ctx, keys, values, ttl)))
 	iterBytes := cache.Get(ctx, len(keys), slices.Values(keys))
 
 	bytes := make([][]byte, 0, len(keys))
@@ -158,12 +159,12 @@ func (self *CacheTestSuite) testCache(cache *Cache, keys []string,
 	self.Require().NoError(cache.Del(ctx, keys))
 }
 
-func itemsSeq(
+func itemSeq(
 	ctx context.Context, keys []string, blobs [][]byte, times []time.Duration,
-) (context.Context, int, iter.Seq[Item]) {
-	return ctx, len(keys), func(yield func(Item) bool) {
+) (context.Context, int, iter.Seq[model.RedisItem]) {
+	return ctx, len(keys), func(yield func(model.RedisItem) bool) {
 		for i := range keys {
-			if !yield(NewItem(keys[i], blobs[i], times[i])) {
+			if !yield(model.NewRedisItem(keys[i], blobs[i], times[i])) {
 				return
 			}
 		}
@@ -223,9 +224,8 @@ func (self *CacheTestSuite) setKey(r *Cache, key string, b []byte,
 	ttl time.Duration,
 ) {
 	ctx := self.T().Context()
-	self.Require().NoError(r.Set(ctx, 1, slices.Values([]Item{
-		NewItem(key, b, ttl),
-	})))
+	self.Require().NoError(r.Set(ctx, 1,
+		slices.Values([]model.RedisItem{model.NewRedisItem(key, b, ttl)})))
 }
 
 func TestCache_errors(t *testing.T) {
@@ -448,10 +448,9 @@ func TestCache_errors(t *testing.T) {
 					return redis.NewStatusResult("", wantErr)
 				}
 			},
-			do: func(t *testing.T, cache *Cache) error {
-				err := cache.Set(ctx, 1, slices.Values([]Item{
-					NewItem(testKey, []byte("abc"), ttl),
-				}))
+			do: func(t *testing.T, c *Cache) error {
+				err := c.Set(ctx, 1, slices.Values(
+					[]model.RedisItem{model.NewRedisItem(testKey, []byte("abc"), ttl)}))
 				return err
 			},
 		},
@@ -475,7 +474,7 @@ func TestCache_errors(t *testing.T) {
 				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, cache *Cache) error {
-				err := cache.Set(itemsSeq(ctx,
+				err := cache.Set(itemSeq(ctx,
 					[]string{testKey, "key2"},
 					[][]byte{[]byte("abc"), []byte("abc")},
 					ttls))
@@ -506,7 +505,7 @@ func TestCache_errors(t *testing.T) {
 				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, cache *Cache) error {
-				err := cache.Set(itemsSeq(ctx,
+				err := cache.Set(itemSeq(ctx,
 					[]string{testKey, "key2", "key3"},
 					[][]byte{[]byte("abc"), []byte("abc"), []byte("abc")},
 					ttls))
@@ -534,7 +533,7 @@ func TestCache_errors(t *testing.T) {
 				rdb.PipelineFunc = func() redis.Pipeliner { return pipe }
 			},
 			do: func(t *testing.T, cache *Cache) error {
-				err := cache.Set(itemsSeq(ctx,
+				err := cache.Set(itemSeq(ctx,
 					[]string{testKey, testKey},
 					[][]byte{[]byte("abc"), []byte("abc")},
 					ttls))
@@ -648,7 +647,7 @@ func TestCache_MGetSet_WithBatchSize(t *testing.T) {
 				}
 			},
 			cacheOp: func(t *testing.T, cache *Cache, nKeys int) {
-				require.NoError(t, cache.Set(itemsSeq(ctx,
+				require.NoError(t, cache.Set(itemSeq(ctx,
 					keys[:nKeys], blobs[:nKeys], times[:nKeys])))
 			},
 		},
@@ -849,7 +848,7 @@ func TestCache_Set_skipEmptyItems(t *testing.T) {
 
 	cache := New(rdb)
 	require.NotNil(t, cache)
-	require.NoError(t, cache.Set(itemsSeq(ctx,
+	require.NoError(t, cache.Set(itemSeq(ctx,
 		[]string{testKey, testKey, testKey, testKey},
 		[][]byte{{}, foobar, foobar, foobar},
 		[]time.Duration{ttl, 0, -1, ttl})))
@@ -881,15 +880,13 @@ func BenchmarkCache_Get(b *testing.B) {
 }
 
 func BenchmarkCache_Set(b *testing.B) {
-	cache, rdb := MustNew()
-	ctx := b.Context()
+	c, rdb := MustNew()
+	items := []model.RedisItem{model.NewRedisItem("key1", []byte("value1"), time.Minute)}
 
 	b.SetParallelism(64)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			err := cache.Set(ctx, 1, slices.Values([]Item{
-				NewItem("key1", []byte("value1"), time.Minute),
-			}))
+			err := c.Set(b.Context(), 1, slices.Values(items))
 			if err != nil {
 				b.Fatal(err)
 			}

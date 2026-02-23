@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/dsh2dsh/expx-cache/model"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -157,7 +158,7 @@ func keyNotFound(err error) bool {
 // --------------------------------------------------
 
 func (self *Cache) Set(ctx context.Context, maxItems int,
-	items iter.Seq[Item],
+	items iter.Seq[model.RedisItem],
 ) error {
 	if maxItems == 1 {
 		for item := range items {
@@ -183,12 +184,12 @@ func (self *Cache) Set(ctx context.Context, maxItems int,
 	return self.msetPipeExec(ctx, pipe)
 }
 
-func singleSet(ctx context.Context, pipe redis.Cmdable, item *Item,
+func singleSet(ctx context.Context, pipe redis.Cmdable, item *model.RedisItem,
 ) error {
-	if len(item.value) == 0 {
+	if len(item.Value) == 0 {
 		return nil
 	}
-	err := pipe.Set(ctx, item.key, item.value, item.ttl).Err()
+	err := pipe.Set(ctx, item.Key, item.Value, item.TTL).Err()
 	if err != nil {
 		return fmt.Errorf("pipelined set: %w", err)
 	}
